@@ -16,3 +16,9 @@ export interface Cell extends Action {
 }
 
 export type Board = Array<Array<Value>>;
+
+export interface MoveState {
+  move: Action,
+  score: number,
+  outcome: 'W'|'L'|'T'|null
+}

@@ -1,4 +1,28 @@
-import { Action, Board, Cell, readline, Value } from "./types/tic-tac-toe";
+declare function readline(): string;
+
+enum Value {
+  E,
+  X,
+  O,
+}
+
+interface Action {
+  row: number;
+  col: number;
+}
+
+interface Cell extends Action {
+  value: Value;
+}
+
+type Board = Array<Array<Value>>;
+
+interface MoveState {
+  move: Action,
+  score: number,
+  outcome: 'W' | 'L' | 'T' | null
+}
+
 
 function gameLoop(gameState: GameState) {
   // game loop
@@ -15,6 +39,7 @@ function gameLoop(gameState: GameState) {
       var inputs = readline().split(" ");
       const row = parseInt(inputs[0]);
       const col = parseInt(inputs[1]);
+      debugMessage(`available ${row},${col}`);
     }
 
     if (opponentRow === -1 && opponentCol === -1) {
@@ -23,7 +48,6 @@ function gameLoop(gameState: GameState) {
         col: 0,
         value: me,
       });
-      debugMessage("first 0 0");
       playPosition(0, 0);
     } else {
       gameState.board = updateBoard(gameState.board, {
@@ -42,7 +66,7 @@ function gameLoop(gameState: GameState) {
         debugMessage(`block ${JSON.stringify(blockMove)}`);
         playPosition(blockMove.row, blockMove.col);
       } else {
-        const bestMove = <Cell>findBestMove(gameState.board, 0, me, opp, me);
+        const bestMove = findBestMoveV2(gameState.board, me);
         gameState.board = updateBoard(gameState.board, {
           row: bestMove.row,
           col: bestMove.col,
@@ -55,20 +79,36 @@ function gameLoop(gameState: GameState) {
   }
 }
 
+const sameBoards = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8],
+  [6, 3, 0, 7, 4, 1, 8, 5, 2],
+  [8, 7, 6, 5, 4, 3, 2, 1, 0],
+  [2, 5, 8, 1, 4, 7, 0, 3, 6],
+  [2, 1, 0, 5, 4, 3, 8, 7, 6],
+  [6, 7, 8, 3, 4, 2, 0, 1, 2],
+];
+
+
+
+function isBoardTied(board: Board): boolean {
+  return boardToArray(board).indexOf(Value.E) === -1 && isBoardWon(board, Value.O) && !isBoardWon(board, Value.X)
+}
+
+function createBoardIndexes(board: Board): string[] {
+  const boardAasArray = boardToArray(board)
+
+  return sameBoards
+    .map((variation) => {
+      return variation.map((index) => boardAasArray[index]).join("-");
+    })
+}
+
 function areBoardsTheSame(boardA: Board, boardB: Board): boolean {
   // flip x, flip y, rotate 90,180,270
 
   const boardAasArray = boardToArray(boardA);
   const boardBString = boardToString(boardB);
 
-  const sameBoards = [
-    [0, 1, 2, 3, 4, 5, 6, 7, 8],
-    [6, 3, 0, 7, 4, 1, 8, 5, 2],
-    [8, 7, 6, 5, 4, 3, 2, 1, 0],
-    [2, 5, 8, 1, 4, 7, 0, 3, 6],
-    [2, 1, 0, 5, 4, 3, 8, 7, 6],
-    [6, 7, 8, 3, 4, 2, 0, 1, 2],
-  ];
   return sameBoards
     .map((variation) => {
       return variation.map((index) => boardAasArray[index]).join("-");
@@ -255,6 +295,47 @@ function getOpponent(player: Value): Value {
   return Value.O;
 }
 
+function findBestMoveState(board: Board, me: Value, opponent: Value, current: Value, moveState: MoveState) {
+  const nextMove = getOpponent(current);
+
+  moveState.score = moveState.score + 1;
+  if (isBoardWon(board, me)) {
+    moveState.outcome = 'W';
+    return;
+  }
+  if (isBoardWon(board, opponent)) {
+    moveState.outcome = 'L';
+    return;
+  }
+  if (isBoardTied(board)) {
+    moveState.outcome = 'T';
+    return;
+  }
+  movesLeft(board).forEach(move => {
+    const newBoard = updateBoard(board, { ...move, value: current });
+    findBestMoveState(newBoard, me, opponent, nextMove, moveState)
+  })
+}
+
+function findBestMoveV2(board: Board, me: Value): Action {
+  const opp = getOpponent(me);
+  const moveStates: MoveState[] = movesLeft(board).map(move => {
+    return {
+      move,
+      score: 0,
+      outcome: null,
+    }
+  });
+
+  moveStates.forEach((ms) => {
+    const newBoard = updateBoard(board, { ...ms.move, value: me });
+    findBestMoveState(newBoard, me, opp, me, ms)
+  });
+
+  const winMoves = moveStates.filter(move => move.outcome === 'W').sort((ma, mb) => ma.score - mb.score);
+  return winMoves[0].move;
+}
+
 function findBestMove(
   board: Board,
   depth: number,
@@ -298,3 +379,4 @@ const gameState = new GameState(1);
 gameLoop(gameState);
 
 // ORDER is ROW | COL
+
