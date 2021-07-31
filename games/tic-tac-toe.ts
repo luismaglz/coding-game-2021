@@ -1,9 +1,17 @@
 declare function readline(): string;
 
 enum Value {
-  E,
-  X,
-  O,
+  E = 1,
+  X = 2,
+  O = 3,
+}
+
+interface ScoredMove {
+  action: Action;
+  score: number;
+}
+interface BigBoardAction extends Action {
+  boardId: number;
 }
 
 interface Action {
@@ -16,17 +24,15 @@ interface Cell extends Action {
 }
 
 type Board = Array<Array<Value>>;
-type BoardState = {
+interface BoardState {
   id: number;
   board: Board;
   state: "Won" | "Lost" | "Clean" | "Playing" | "Tie";
-};
+}
 
-interface MoveState {
-  board: string;
-  move: Action;
-  score: number;
-  outcome: "W" | "L" | "T" | null;
+interface ScoredBoardState extends BoardState {
+  score: ScoredMove[];
+  scoreValue: number;
 }
 
 const emptyBoard = [
@@ -84,17 +90,17 @@ class GameState {
     },
   ];
   activeBoard: number = 0;
-  bigBoard: Board = cloneBoard(emptyBoard);
 
   getBoard(id: number): BoardState {
     return this.boards[id];
   }
 
-  getNextAvailableBoard(): BoardState {
-    return this.boards.find(
-      (b) => b.state === "Clean" || b.state === "Playing"
-    )!;
-  }
+  // getNextAvailableBoard(me: Value, opp: Value): BoardState {
+  //   const scoredBoard = scoreMovesBigBoard(this.boards, me, opp).sort(
+  //     (a, b) => b.scoreValue - a.scoreValue
+  //   );
+  //   return scoredBoard[0];
+  // }
 
   updateFromPlay(
     row: number,
@@ -139,7 +145,23 @@ class GameState {
       }
     }
   }
-  constructor() {}
+
+  getId(): string {
+    return createBigBoardID(this.boards);
+  }
+
+  constructor(protected state?: GameState) {
+    if (state) {
+      this.boards = state.boards.map((boardState) => {
+        return {
+          ...boardState,
+          boards: cloneBoard(boardState.board),
+        };
+      });
+
+      this.activeBoard = state.activeBoard;
+    }
+  }
 }
 
 function getBoardFromPlay(row: number, col: number): number {
@@ -272,8 +294,10 @@ function offSetToSmallBoard(row: number, col: number): Action {
 }
 
 function gameLoop(gameState: GameState) {
+  let moveCount = 0;
   // game loop
   while (true) {
+    moveCount++;
     var inputs = readline().split(" ");
     const opponentRow = parseInt(inputs[0]);
     const opponentCol = parseInt(inputs[1]);
@@ -294,100 +318,87 @@ function gameLoop(gameState: GameState) {
     } else {
       // Update Board From Move
       gameState.updateFromPlay(opponentRow, opponentCol, opp, me, opp);
-
       const nextBoardId = getNextBoardFromPlay(opponentRow, opponentCol);
-      let nextBoardState = gameState.getBoard(nextBoardId);
+      const bestMoves = findBestBigBoardMove(
+        gameState,
+        nextBoardId,
+        me,
+        opp
+      ).sort((a, b) => b.score - a.score);
+      const winMove = bestMoves.filter((bestMove) => bestMove.score === 1);
+      const loseMove = bestMoves.filter((bestMove) => bestMove.score === -1);
+      debugMessage({ winMove, loseMove });
 
-      if (
-        nextBoardState.state === "Lost" ||
-        nextBoardState.state === "Tie" ||
-        nextBoardState.state === "Won"
-      ) {
-        nextBoardState = gameState.getNextAvailableBoard();
-      }
-      const boardId = nextBoardState.id;
-      const board = nextBoardState.board;
-
-      if (nextBoardState.state === "Clean") {
-        gameState.updateBoard(boardId, 0, 0, me, me, opp);
-        const bigBoardAction = offSetToBigBoard(0, 0, boardId);
-        playPosition(bigBoardAction.row, bigBoardAction.col);
+      if (winMove.length > 0) {
+        playPosition(winMove[0].action.row, winMove[0].action.col);
       } else {
-        const blockMove = moveToBlock(board, opp);
+        let nextBoardState = gameState.getBoard(nextBoardId);
+        if (
+          nextBoardState.state === "Lost" ||
+          nextBoardState.state === "Tie" ||
+          nextBoardState.state === "Won"
+        ) {
+          nextBoardState = gameState.boards.find(
+            (boardState) =>
+              boardState.state === "Clean" || boardState.state === "Playing"
+          )!;
+        }
+        const boardId = nextBoardState.id;
+        const board = nextBoardState.board;
 
-        if (blockMove) {
-          gameState.updateBoard(
-            boardId,
-            blockMove.row,
-            blockMove.col,
-            me,
-            me,
-            opp
-          );
-          const bigBoardAction = offSetToBigBoard(
-            blockMove.row,
-            blockMove.col,
-            boardId
-          );
+        if (nextBoardState.state === "Clean") {
+          gameState.updateBoard(boardId, 0, 0, me, me, opp);
+          const bigBoardAction = offSetToBigBoard(0, 0, boardId);
           playPosition(bigBoardAction.row, bigBoardAction.col);
         } else {
-          const bestMove = findBestMove(board, me, opp);
-          gameState.updateBoard(
-            boardId,
-            bestMove.row,
-            bestMove.col,
-            me,
-            me,
-            opp
-          );
-          const bigBoardAction = offSetToBigBoard(
-            bestMove.row,
-            bestMove.col,
-            boardId
-          );
-          playPosition(bigBoardAction.row, bigBoardAction.col);
+          const blockMove = moveToBlock(board, opp);
+
+          if (blockMove) {
+            gameState.updateBoard(
+              boardId,
+              blockMove.row,
+              blockMove.col,
+              me,
+              me,
+              opp
+            );
+            const bigBoardAction = offSetToBigBoard(
+              blockMove.row,
+              blockMove.col,
+              boardId
+            );
+            playPosition(bigBoardAction.row, bigBoardAction.col);
+          } else {
+            const bestMoves = findBestMove(board, me, opp).sort(
+              (a, b) => b.score - a.score
+            );
+            gameState.updateBoard(
+              boardId,
+              bestMoves[0].action.row,
+              bestMoves[0].action.col,
+              me,
+              me,
+              opp
+            );
+            const bigBoardAction = offSetToBigBoard(
+              bestMoves[0].action.row,
+              bestMoves[0].action.col,
+              boardId
+            );
+            playPosition(bigBoardAction.row, bigBoardAction.col);
+          }
         }
       }
     }
   }
 }
 
-const sameBoards = [
-  [0, 1, 2, 3, 4, 5, 6, 7, 8],
-  [6, 3, 0, 7, 4, 1, 8, 5, 2],
-  [8, 7, 6, 5, 4, 3, 2, 1, 0],
-  [2, 5, 8, 1, 4, 7, 0, 3, 6],
-  [2, 1, 0, 5, 4, 3, 8, 7, 6],
-  [6, 7, 8, 3, 4, 2, 0, 1, 2],
-];
-
 function isBoardTied(board: Board): boolean {
   return (
     boardToArray(board).indexOf(Value.E) === -1 &&
-    isBoardWon(board, Value.O) &&
+    !isBoardWon(board, Value.O) &&
     !isBoardWon(board, Value.X)
   );
-}
-
-function createBoardIndexes(board: Board): string[] {
-  const boardAasArray = boardToArray(board);
-
-  return sameBoards.map((variation) => {
-    return variation.map((index) => boardAasArray[index]).join("-");
-  });
-}
-
-function areBoardsTheSame(boardA: Board, boardB: Board): boolean {
-  // flip x, flip y, rotate 90,180,270
-
-  const boardAasArray = boardToArray(boardA);
-  const boardBString = boardToString(boardB);
-
-  return sameBoards
-    .map((variation) => {
-      return variation.map((index) => boardAasArray[index]).join("-");
-    })
-    .includes(boardBString);
 }
 
 function moveToBlock(board: Board, opp: Value): Action | null {
@@ -489,7 +500,11 @@ function boardToArray(board: Board): Value[] {
 }
 
 function boardToString(board: Board): string {
-  return boardToArray(board).join("-");
+  return boardToArray(board).join("");
+}
+
+function boardToKey(board: Board): number {
+  return parseInt(boardToArray(board).join(""));
 }
 
 function toAction(ac: string): Action {
@@ -532,6 +547,22 @@ function movesLeft(board: Board): Cell[] {
   return cells.filter((cell) => cell.value === Value.E);
 }
 
+function movesLeftBigBoard(
+  bigBoard: BoardState[],
+  nextBoardId: number
+): BoardState[] {
+  if (
+    bigBoard[nextBoardId].state === "Playing" ||
+    bigBoard[nextBoardId].state === "Clean"
+  ) {
+    return [bigBoard[nextBoardId]];
+  }
+  return bigBoard.filter(
+    (boardState) =>
+      boardState.state === "Clean" || boardState.state === "Playing"
+  );
+}
+
 function isBoardWon(board: Board, player: Value): boolean {
   const boardWonIndexes = [
     [0, 4, 8],
@@ -561,46 +592,20 @@ function getOpponent(player: Value): Value {
   return Value.O;
 }
 
-const moveMap: { [key: string]: Action } = {
-  "1-0-0-0-0-0-0-0-0": { row: 2, col: 2 },
-  "0-0-0-0-0-0-0-0-1": { row: 0, col: 0 },
-  "0-0-1-0-0-0-0-0-1": { row: 2, col: 0 },
-  "0-0-1-0-0-0-1-0-0": { row: 0, col: 2 },
-  "0-1-0-0-0-0-0-0-0": { row: 0, col: 0 },
-  "0-0-0-0-1-0-0-0-0": { row: 0, col: 0 },
-  "0-0-0-0-0-0-0-1-0": { row: 0, col: 0 },
-  "0-0-0-1-0-0-0-0-0": { row: 0, col: 0 },
-  "0-0-0-0-0-1-0-0-0": { row: 0, col: 0 },
-  "2-0-0-0-0-0-0-0-0": { row: 2, col: 2 },
-  "0-0-0-0-0-0-0-0-2": { row: 0, col: 0 },
-  "0-0-2-0-0-0-0-0-2": { row: 2, col: 0 },
-  "0-0-2-0-0-0-2-0-0": { row: 0, col: 2 },
-  "0-2-0-0-0-0-0-0-0": { row: 0, col: 0 },
-  "0-0-0-0-2-0-0-0-0": { row: 0, col: 0 },
-  "0-0-0-0-0-0-0-2-0": { row: 0, col: 0 },
-  "0-0-0-2-0-0-0-0-0": { row: 0, col: 0 },
-  "0-0-0-0-0-2-0-0-0": { row: 0, col: 0 },
-};
-
-const moveScoreMap: { [key: string]: number } = {};
-
-const gameState = new GameState();
-gameLoop(gameState);
-
 // ORDER is ROW | COL
-interface ScoredMove {
-  action: Action;
-  score: number;
+
+function findBestMove(board: Board, me: Value, opp: Value): ScoredMove[] {
+  const moves = movesLeft(board);
+  return scoreMoves(board, me, opp, moves);
 }
 
-function findBestMove(board: Board, me: Value, opp: Value): Action {
-  const boardAsString = boardToString(board);
-  if (moveMap[boardAsString]) {
-    return moveMap[boardAsString];
-  }
-  const moves = movesLeft(board);
-  const scoredMoves = scoreMoves(board, me, opp, moves);
-  return scoredMoves.sort((a, b) => b.score - a.score)[0].action;
+function findBestBigBoardMove(
+  gameState: GameState,
+  nextBoardId: number,
+  me: Value,
+  opp: Value
+): ScoredMove[] {
+  return scoreMovesBigBoard(gameState, nextBoardId, me, opp);
 }
 
 function scoreMoves(
@@ -620,6 +625,134 @@ function scoreMoves(
       action: move,
     };
   });
+}
+
+function scoreMovesBigBoard(
+  gameState: GameState,
+  nextBoardId: number,
+  me: Value,
+  opp: Value
+): ScoredMove[] {
+  const availableBoards = movesLeftBigBoard(gameState.boards, nextBoardId);
+
+  const aMoves = availableBoards.map((boardState) =>
+    movesLeft(boardState.board)
+  );
+
+  const wins = gameState.boards.filter((gs) => gs.state === "Won").length;
+  const loss = gameState.boards.filter((gs) => gs.state === "Lost").length;
+  const tie = gameState.boards.filter((gs) => gs.state === "Tie").length;
+
+  return aMoves
+    .reduce((acc, sm) => [...acc, ...sm], [])
+    .map((move) => {
+      const updatedGameState = new GameState(gameState);
+      updatedGameState.updateFromPlay(move.row, move.col, me, me, opp);
+      const boardIndex = getBoardFromPlay(move.row, move.col);
+      return {
+        score: minMaxBigBoard(
+          updatedGameState,
+          boardIndex,
+          me,
+          opp,
+          opp,
+          0,
+          wins,
+          loss,
+          tie
+        ),
+        action: move,
+      };
+    });
+}
+
+function bigBoardStateToValue(
+  state: "Won" | "Lost" | "Clean" | "Playing" | "Tie"
+): Value {
+  switch (state) {
+    case "Won": {
+      return Value.X;
+      break;
+    }
+    case "Lost": {
+      return Value.O;
+    }
+    default: {
+      return Value.E;
+      break;
+    }
+  }
+}
+
+function bigBoardToSmallBoard(bigBoard: BoardState[]): Board {
+  return [
+    [
+      bigBoardStateToValue(bigBoard[0].state),
+      bigBoardStateToValue(bigBoard[1].state),
+      bigBoardStateToValue(bigBoard[2].state),
+    ],
+    [
+      bigBoardStateToValue(bigBoard[3].state),
+      bigBoardStateToValue(bigBoard[4].state),
+      bigBoardStateToValue(bigBoard[5].state),
+    ],
+    [
+      bigBoardStateToValue(bigBoard[6].state),
+      bigBoardStateToValue(bigBoard[7].state),
+      bigBoardStateToValue(bigBoard[8].state),
+    ],
+  ];
+}
+
+function isBigBoardWon(bigBoard: BoardState[]): boolean {
+  // const bigBoardAsSmallBoard = bigBoardToSmallBoard(bigBoard);
+  // const isWon = isBoardWon(bigBoardAsSmallBoard, Value.X);
+
+  // if (isWon) {
+  //   return true;
+  // } else if (
+  //   bigBoard.some(
+  //     (boardState) =>
+  //       boardState.state === "Clean" || boardState.state === "Playing"
+  //   )
+  // ) {
+  //   return false;
+  // }
+  return (
+    bigBoard.filter((boardState) => boardState.state === "Won").length >
+    bigBoard.filter((boardState) => boardState.state === "Lost").length
+  );
+}
+
+function isBigBoardLost(bigBoard: BoardState[]): boolean {
+  // const bigBoardAsSmallBoard = bigBoardToSmallBoard(bigBoard);
+  // const isWon = isBoardWon(bigBoardAsSmallBoard, Value.O);
+
+  // if (isWon) {
+  //   return true;
+  // } else if (
+  //   bigBoard.some(
+  //     (boardState) =>
+  //       boardState.state === "Clean" || boardState.state === "Playing"
+  //   )
+  // ) {
+  //   return false;
+  // }
+  return (
+    bigBoard.filter((boardState) => boardState.state === "Won").length <
+    bigBoard.filter((boardState) => boardState.state === "Lost").length
+  );
+}
+
+function isBigBoardTied(bigBoard: BoardState[]): boolean {
+  return (
+    !isBigBoardLost(bigBoard) &&
+    !isBigBoardLost(bigBoard) &&
+    !bigBoard.some(
+      (boardState) =>
+        boardState.state === "Clean" || boardState.state === "Playing"
+    )
+  );
 }
 
 function minMax(board: Board, me: Value, opp: Value, current: Value): number {
@@ -643,7 +776,17 @@ function minMax(board: Board, me: Value, opp: Value, current: Value): number {
       row: ma.row,
       value: current,
     });
-    const moveScore = minMax(updatedBoard, me, opp, getOpponent(current));
+
+    let moveScore;
+    const boardKey = boardToString(updatedBoard);
+    if (optimizedHash[boardKey]) {
+      const [score, row, col] = optimizedHash[boardKey].split(",");
+      moveScore = parseInt(score, 10);
+    } else {
+      moveScore = minMax(updatedBoard, me, opp, getOpponent(current));
+      optimizedHash[boardKey] = [moveScore, ma.row, ma.col].join(",");
+    }
+
     if (moveScore > score) {
       score = moveScore;
       move = mi;
@@ -656,3 +799,148 @@ function minMax(board: Board, me: Value, opp: Value, current: Value): number {
 
   return score;
 }
+
+function minMaxBigBoard(
+  mmGameState: GameState,
+  boardIndex: number,
+  me: Value,
+  opp: Value,
+  current: Value,
+  depth: number,
+  winsBefore: number,
+  lossBefore: number,
+  tieBefore: number
+): number {
+  depth++;
+  if (depth === 2) {
+    return 0;
+  }
+
+  if (
+    mmGameState.boards.filter((gameState) => gameState.state === "Won").length >
+    winsBefore
+  ) {
+    return 1;
+  }
+  if (
+    mmGameState.boards.filter((gameState) => gameState.state === "Lost")
+      .length > lossBefore
+  ) {
+    return -1;
+  }
+
+  let move = -1;
+  let score = -2;
+
+  // Create array with playable boards
+  let boardStates = [mmGameState.boards[boardIndex]];
+  if (boardStates[0].state !== "Playing" && boardStates[0].state !== "Clean") {
+    boardStates = mmGameState.boards.filter(
+      (board) => board.state === "Playing" || board.state === "Clean"
+    );
+  }
+
+  // Get all moves from playable boards
+  const movesArray = boardStates.map((boardState) => {
+    return movesLeft(boardState.board).map((move) =>
+      offSetToBigBoard(move.row, move.col, boardState.id)
+    );
+  });
+
+  // Combine them all into a single array
+  const allMoves: Action[] = movesArray.reduce((acc, moves) => {
+    return acc.concat(moves);
+  }, []);
+
+  // Try all the moves
+  for (const [mi, ma] of Object.entries(allMoves)) {
+    const newGameState = new GameState(mmGameState);
+    newGameState.updateFromPlay(ma.row, ma.col, current, me, opp);
+
+    let moveScore;
+    const boardKey = newGameState.getId();
+    if (bigBoardHash[boardKey]) {
+      const [score, row, col] = bigBoardHash[boardKey].split(",");
+      moveScore = parseInt(score, 10);
+    } else {
+      const nextId = getNextBoardFromPlay(ma.row, ma.col);
+      moveScore = minMaxBigBoard(
+        newGameState,
+        nextId,
+        me,
+        opp,
+        getOpponent(current),
+        depth,
+        winsBefore,
+        lossBefore,
+        tieBefore
+      );
+      bigBoardHash[boardKey] = [moveScore, ma.row, ma.col].join(",");
+    }
+
+    if (moveScore > score) {
+      score = moveScore;
+      move = parseInt(mi, 10);
+    }
+  }
+
+  if (move === -1) {
+    return 0;
+  }
+
+  return score;
+}
+
+function createBigBoardID(bigBoard: BoardState[]): string {
+  return bigBoard.map((boardState) => boardToString(boardState.board)).join("");
+}
+
+// score,row,col
+//
+
+// const myBoard = cloneBoard(emptyBoard);
+// minMax(myBoard, Value.X, Value.O, Value.X);
+
+const values: string[] = [
+  "1,0,0",
+  "1,2,2",
+  "1,2,1",
+  "1,2,0",
+  "1,1,2",
+  "1,1,1",
+  "-1,2,2",
+  "0,2,0",
+  "1,1,0",
+  "0,2,2",
+  "0,2,1",
+  "0,1,2",
+  "-1,2,1",
+  "-1,1,2",
+  "1,0,2",
+  "0,1,1",
+  "-1,2,0",
+  "1,0,1",
+  "-1,1,1",
+  "0,1,0",
+  "-1,0,2",
+];
+
+const hash: { [key: string]: string } = {};
+const optimizedHash: { [key: string]: string } = {};
+const bigBoardHash: { [key: string]: string } = {};
+
+// Object.keys(hash).forEach((key) => {
+//   hash[key] = `values[${values.indexOf(hash[key])}]`;
+// });
+
+// fs.writeFileSync(path.join(__dirname, "./hash"), JSON.stringify(hash));
+const initial_gameState = new GameState();
+// initial_gameState.updateBoard(0, 0, 0, Value.X, Value.X, Value.O);
+// initial_gameState.updateBoard(0, 1, 0, Value.O, Value.X, Value.O);
+// const v = scoreMovesBigBoard(initial_gameState, Value.X, Value.O);
+// fs.writeFileSync(
+//   path.join(__dirname, "./bigScore.json"),
+//   JSON.stringify(bigBoardHash)
+// );
+
+gameLoop(initial_gameState);
