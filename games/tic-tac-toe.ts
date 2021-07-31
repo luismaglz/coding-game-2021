@@ -23,6 +23,7 @@ type BoardState = {
 };
 
 interface MoveState {
+  board: string;
   move: Action;
   score: number;
   outcome: "W" | "L" | "T" | null;
@@ -137,7 +138,6 @@ class GameState {
         boardState.state = "Tie";
       }
     }
-    debugMessage(boardState);
   }
   constructor() {}
 }
@@ -297,6 +297,7 @@ function gameLoop(gameState: GameState) {
 
       const nextBoardId = getNextBoardFromPlay(opponentRow, opponentCol);
       let nextBoardState = gameState.getBoard(nextBoardId);
+
       if (
         nextBoardState.state === "Lost" ||
         nextBoardState.state === "Tie" ||
@@ -306,12 +307,14 @@ function gameLoop(gameState: GameState) {
       }
       const boardId = nextBoardState.id;
       const board = nextBoardState.board;
+
       if (nextBoardState.state === "Clean") {
         gameState.updateBoard(boardId, 0, 0, me, me, opp);
         const bigBoardAction = offSetToBigBoard(0, 0, boardId);
         playPosition(bigBoardAction.row, bigBoardAction.col);
       } else {
         const blockMove = moveToBlock(board, opp);
+
         if (blockMove) {
           gameState.updateBoard(
             boardId,
@@ -328,7 +331,7 @@ function gameLoop(gameState: GameState) {
           );
           playPosition(bigBoardAction.row, bigBoardAction.col);
         } else {
-          const bestMove = findBestMoveV2(board, me);
+          const bestMove = findBestMove(board, me, opp);
           gameState.updateBoard(
             boardId,
             bestMove.row,
@@ -388,7 +391,10 @@ function areBoardsTheSame(boardA: Board, boardB: Board): boolean {
 }
 
 function moveToBlock(board: Board, opp: Value): Action | null {
-  for (let row = 0; row <= 2; row++) {
+  //ROWS
+  for (let c = 0; c <= 2; c++) {
+    const row = c;
+
     if (
       board[row][0] === opp &&
       board[row][1] === opp &&
@@ -400,7 +406,7 @@ function moveToBlock(board: Board, opp: Value): Action | null {
     if (
       board[row][0] === opp &&
       board[row][1] === Value.E &&
-      board[row][2] == opp
+      board[row][2] === opp
     ) {
       return { row, col: 1 };
     }
@@ -408,17 +414,17 @@ function moveToBlock(board: Board, opp: Value): Action | null {
     if (
       board[row][0] === Value.E &&
       board[row][1] === opp &&
-      board[row][2] == opp
+      board[row][2] === opp
     ) {
       return { row, col: 0 };
     }
-  }
 
-  for (let col = 0; col <= 2; col++) {
+    const col = c;
+
     if (
       board[0][col] === opp &&
       board[1][col] === opp &&
-      board[2][col] == null
+      board[2][col] === Value.E
     ) {
       return { row: 2, col };
     }
@@ -426,7 +432,7 @@ function moveToBlock(board: Board, opp: Value): Action | null {
     if (
       board[0][col] === opp &&
       board[1][col] === Value.E &&
-      board[2][col] == opp
+      board[2][col] === opp
     ) {
       return { row: 1, col };
     }
@@ -434,11 +440,13 @@ function moveToBlock(board: Board, opp: Value): Action | null {
     if (
       board[0][col] === Value.E &&
       board[1][col] === opp &&
-      board[2][col] == opp
+      board[2][col] === opp
     ) {
-      return { row: 2, col };
+      return { row: 0, col };
     }
   }
+
+  //COLS
 
   if (board[1][1] === opp) {
     if (board[0][0] === opp && board[2][2] === Value.E) {
@@ -558,117 +566,93 @@ const moveMap: { [key: string]: Action } = {
   "0-0-0-0-0-0-0-0-1": { row: 0, col: 0 },
   "0-0-1-0-0-0-0-0-1": { row: 2, col: 0 },
   "0-0-1-0-0-0-1-0-0": { row: 0, col: 2 },
+  "0-1-0-0-0-0-0-0-0": { row: 0, col: 0 },
+  "0-0-0-0-1-0-0-0-0": { row: 0, col: 0 },
+  "0-0-0-0-0-0-0-1-0": { row: 0, col: 0 },
+  "0-0-0-1-0-0-0-0-0": { row: 0, col: 0 },
+  "0-0-0-0-0-1-0-0-0": { row: 0, col: 0 },
+  "2-0-0-0-0-0-0-0-0": { row: 2, col: 2 },
+  "0-0-0-0-0-0-0-0-2": { row: 0, col: 0 },
+  "0-0-2-0-0-0-0-0-2": { row: 2, col: 0 },
+  "0-0-2-0-0-0-2-0-0": { row: 0, col: 2 },
+  "0-2-0-0-0-0-0-0-0": { row: 0, col: 0 },
+  "0-0-0-0-2-0-0-0-0": { row: 0, col: 0 },
+  "0-0-0-0-0-0-0-2-0": { row: 0, col: 0 },
+  "0-0-0-2-0-0-0-0-0": { row: 0, col: 0 },
+  "0-0-0-0-0-2-0-0-0": { row: 0, col: 0 },
 };
 
-function findBestMoveState(
-  board: Board,
-  me: Value,
-  opponent: Value,
-  current: Value,
-  moveState: MoveState
-) {
-  const nextMove = getOpponent(current);
+const moveScoreMap: { [key: string]: number } = {};
 
-  moveState.score = moveState.score + 1;
-  if (isBoardWon(board, me)) {
-    moveState.outcome = "W";
-    return;
-  }
-  if (isBoardWon(board, opponent)) {
-    moveState.outcome = "L";
-    return;
-  }
-  if (isBoardTied(board)) {
-    moveState.outcome = "T";
-    return;
-  }
-  movesLeft(board).forEach((move) => {
-    const newBoard = updateBoard(board, { ...move, value: current });
-    findBestMoveState(newBoard, me, opponent, nextMove, moveState);
-  });
+const gameState = new GameState();
+gameLoop(gameState);
+
+// ORDER is ROW | COL
+interface ScoredMove {
+  action: Action;
+  score: number;
 }
 
-function findBestMoveV2(board: Board, me: Value): Action {
-  const boardAsArray = boardToString(board);
-  debugMessage(boardAsArray);
-  if (moveMap[boardAsArray]) {
-    return moveMap[boardAsArray];
+function findBestMove(board: Board, me: Value, opp: Value): Action {
+  const boardAsString = boardToString(board);
+  if (moveMap[boardAsString]) {
+    return moveMap[boardAsString];
   }
-  const opp = getOpponent(me);
-  const moveStates: MoveState[] = movesLeft(board).map((move) => {
+  const moves = movesLeft(board);
+  const scoredMoves = scoreMoves(board, me, opp, moves);
+  return scoredMoves.sort((a, b) => b.score - a.score)[0].action;
+}
+
+function scoreMoves(
+  board: Board,
+  me: Value,
+  opp: Value,
+  moves: Action[]
+): ScoredMove[] {
+  return moves.map((move) => {
     return {
-      move,
-      score: 0,
-      outcome: null,
+      score: minMax(
+        updateBoard(board, { row: move.row, col: move.col, value: me }),
+        me,
+        opp,
+        opp
+      ),
+      action: move,
     };
   });
-  debugMessage({ w: "before", moveStates, board });
-
-  moveStates.forEach((ms) => {
-    const newBoard = updateBoard(board, { ...ms.move, value: me });
-    findBestMoveState(newBoard, me, opp, me, ms);
-  });
-
-  debugMessage({ w: "after", moveStates });
-
-  const winMoves = moveStates
-    .filter((move) => move.outcome === "W")
-    .sort((ma, mb) => ma.score - mb.score);
-
-  if (winMoves[0]) {
-    return winMoves[0].move;
-  }
-  const tieMoves = moveStates
-    .filter((move) => move.outcome === "T")
-    .sort((ma, mb) => ma.score - mb.score);
-
-  if (tieMoves[0]) {
-    return tieMoves[0].move;
-  }
-
-  return moveStates.sort((ma, mb) => mb.score - ma.score)[0].move;
 }
 
-function findBestMove(
-  board: Board,
-  depth: number,
-  me: Value,
-  opponent: Value,
-  current: Value
-): number | Cell {
-  let score = depth;
-  const nextMove = getOpponent(current);
-
+function minMax(board: Board, me: Value, opp: Value, current: Value): number {
   if (isBoardWon(board, me)) {
-    return score - 10;
+    return 1;
+  }
+  if (isBoardWon(board, opp)) {
+    return -1;
   }
 
-  if (isBoardWon(board, opponent)) {
-    return 10 + score;
+  let move = -1;
+  let score = -2;
+
+  const movesAvailable = movesLeft(board);
+
+  for (let mi = 0; mi < movesAvailable.length; mi++) {
+    mi;
+    const ma = movesAvailable[mi];
+    const updatedBoard = updateBoard(board, {
+      col: ma.col,
+      row: ma.row,
+      value: current,
+    });
+    const moveScore = minMax(updatedBoard, me, opp, getOpponent(current));
+    if (moveScore > score) {
+      score = moveScore;
+      move = mi;
+    }
   }
 
-  const moves = movesLeft(board);
-  const scores = moves.map((move) => {
-    const newBoard = updateBoard(board, { ...move, value: current });
-    const moveScore =
-      score + <number>findBestMove(newBoard, depth + 1, me, opponent, nextMove);
-    return moveScore;
-  });
-
-  if (depth === 0) {
-    const minScore = Math.min(...scores);
-    return moves[scores.indexOf(minScore)];
+  if (move === -1) {
+    return 0;
   }
 
   return score;
 }
-
-const gameState = new GameState();
-// debugMessage(gameState.board);
-// debugMessage(movesLeft(gameState.board));
-// gameState.board = updateBoard(gameState.board, { row: 0, col: 0, value: Move.X });
-// debugMessage(movesLeft(gameState.board));
-
-gameLoop(gameState);
-
-// ORDER is ROW | COL
