@@ -46,6 +46,18 @@ const emptyBoard = [
   [Value.E, Value.E, Value.E],
 ];
 
+const possibleMoves: Action[] = [
+  { row: 0, col: 0 },
+  { row: 0, col: 2 },
+  { row: 2, col: 0 },
+  { row: 2, col: 2 },
+  { row: 1, col: 1 },
+  { row: 0, col: 1 },
+  { row: 1, col: 0 },
+  { row: 1, col: 2 },
+  { row: 2, col: 1 },
+];
+
 class GameState {
   boards: BoardState[] = [
     {
@@ -338,6 +350,9 @@ function gameLoop(gameState: GameState) {
     } else {
       // Update Board From Move
       gameState.updateFromPlay(opponentRow, opponentCol, opp, me, opp);
+      if (opponentRow === 0 && opponentCol === 6) {
+        debugMessage(gameState.boards);
+      }
       const nextBoardId = getNextBoardFromPlay(opponentRow, opponentCol);
       const bigBoardScoredMoves = scoreMovesBigBoard(gameState, me, opp);
 
@@ -381,15 +396,32 @@ function gameLoop(gameState: GameState) {
             row: 0,
             col: 0,
           };
-          const availableMoves = movesLeftBigBoard(gameState).filter(
-            (availMove) => {
+
+          const availableMovesSmall = movesLeft(board);
+          // const availableMoves = movesLeftBigBoard(gameState).filter(
+          //   (availMove) => {
+          //     return !loseMove.some(
+          //       (l) =>
+          //         l.action.row === availMove.row &&
+          //         l.action.col === availMove.col
+          //     );
+          //   }
+          // );
+          const availableMoves = possibleMoves
+            .filter((posMove) =>
+              availableMovesSmall.some(
+                (availMove) =>
+                  posMove.row === availMove.row && posMove.col === availMove.col
+              )
+            )
+            .map((action) => offSetToBigBoard(action.row, action.col, boardId))
+            .filter((availMove) => {
               return !loseMove.some(
                 (l) =>
                   l.action.row === availMove.row &&
                   l.action.col === availMove.col
               );
-            }
-          );
+            });
 
           if (availableMoves) {
             move = availableMoves[0];
@@ -575,7 +607,7 @@ function playPosition(row: number, col: number): void {
 }
 
 function debugMessage(value: any): void {
-  console.error(value);
+  console.error(JSON.stringify(value));
 }
 
 function boardToArray(board: Board): Value[] {
@@ -737,7 +769,8 @@ function scoreMovesBigBoard(
       current,
       wins,
       loss,
-      tie
+      tie,
+      availableMoves.length > 6 ? 1 : 0
     );
 
     const scoredBigMove: ScoredBigMove = {
@@ -1030,3 +1063,5 @@ const initial_gameState = new GameState();
 // );
 
 gameLoop(initial_gameState);
+//seed=310144971
+//TfuPChSI1
