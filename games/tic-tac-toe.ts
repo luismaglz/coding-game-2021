@@ -108,13 +108,6 @@ class GameState {
     return this.boards[id];
   }
 
-  // getNextAvailableBoard(me: Value, opp: Value): BoardState {
-  //   const scoredBoard = scoreMovesBigBoard(this.boards, me, opp).sort(
-  //     (a, b) => b.scoreValue - a.scoreValue
-  //   );
-  //   return scoredBoard[0];
-  // }
-
   updateFromPlay(
     row: number,
     col: number,
@@ -328,6 +321,21 @@ function createSmallBoardFromBigBoard(gameState: GameState, me: Value): Board {
     [values[6], values[7], values[8]],
   ];
   return board;
+}
+
+function isBoardPreTied(board: Board): boolean {
+  const bestMovesMe = findBestMove(board, Value.X, Value.O);
+  const bestMovesOpp = findBestMove(board, Value.O, Value.X);
+
+  return bestMovesMe
+    .concat(bestMovesOpp)
+    .every((scoredMove) => scoredMove.score === 0);
+}
+
+function isBoardPlayable(
+  state: "Won" | "Lost" | "Clean" | "Playing" | "Tie"
+): boolean {
+  return state === "Playing" || state === "Clean";
 }
 
 function canIBeBlocked(board: Board, me: Value): boolean {
@@ -704,10 +712,7 @@ function movesLeftBigBoard(gameState: GameState): Action[] {
   const bigBoard = gameState.boards;
   const nextBoardId = gameState.activeBoard;
 
-  if (
-    bigBoard[nextBoardId].state === "Playing" ||
-    bigBoard[nextBoardId].state === "Clean"
-  ) {
+  if (isBoardPlayable(bigBoard[nextBoardId].state)) {
     return [bigBoard[nextBoardId]]
       .map((boardState) =>
         movesLeft(boardState.board).map((move) =>
@@ -717,10 +722,7 @@ function movesLeftBigBoard(gameState: GameState): Action[] {
       .reduce((acc, sm) => [...acc, ...sm], []);
   }
   return bigBoard
-    .filter(
-      (boardState) =>
-        boardState.state === "Clean" || boardState.state === "Playing"
-    )
+    .filter((boardState) => isBoardPlayable(boardState.state))
     .map((boardState) =>
       movesLeft(boardState.board).map((move) =>
         offSetToBigBoard(move.row, move.col, boardState.id)
@@ -887,10 +889,7 @@ function isBigBoardTied(bigBoard: BoardState[]): boolean {
   return (
     !isBigBoardLost(bigBoard) &&
     !isBigBoardLost(bigBoard) &&
-    !bigBoard.some(
-      (boardState) =>
-        boardState.state === "Clean" || boardState.state === "Playing"
-    )
+    !bigBoard.some((boardState) => isBoardPlayable(boardState.state))
   );
 }
 
