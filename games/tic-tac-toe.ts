@@ -52,10 +52,6 @@ const possibleMoves: Action[] = [
   { row: 2, col: 0 },
   { row: 2, col: 2 },
   { row: 1, col: 1 },
-  { row: 0, col: 1 },
-  { row: 1, col: 0 },
-  { row: 1, col: 2 },
-  { row: 2, col: 1 },
 ];
 
 class GameState {
@@ -367,7 +363,14 @@ function gameLoop(gameState: GameState) {
         (bestMove) => bestMove.outcome === "Tie"
       );
 
-      if (winMove.length > 0) {
+      if (moveCount === 1 && opponentCol === 4 && opponentRow === 4) {
+        debugMessage("here1");
+        gameState.updateBoard(4, 0, 1, me, me, opp);
+        playPosition(4, 3);
+      } else if (moveCount === 1 && opponentCol === 0 && opponentRow === 0) {
+        gameState.updateBoard(0, 0, 1, me, me, opp);
+        playPosition(4, 3);
+      } else if (winMove.length > 0) {
         gameState.updateFromPlay(
           winMove[0].action.row,
           winMove[0].action.col,
@@ -398,15 +401,6 @@ function gameLoop(gameState: GameState) {
           };
 
           const availableMovesSmall = movesLeft(board);
-          // const availableMoves = movesLeftBigBoard(gameState).filter(
-          //   (availMove) => {
-          //     return !loseMove.some(
-          //       (l) =>
-          //         l.action.row === availMove.row &&
-          //         l.action.col === availMove.col
-          //     );
-          //   }
-          // );
           const availableMoves = possibleMoves
             .filter((posMove) =>
               availableMovesSmall.some(
