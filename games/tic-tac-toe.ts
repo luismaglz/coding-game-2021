@@ -346,9 +346,6 @@ function gameLoop(gameState: GameState) {
     } else {
       // Update Board From Move
       gameState.updateFromPlay(opponentRow, opponentCol, opp, me, opp);
-      if (opponentRow === 0 && opponentCol === 6) {
-        debugMessage(gameState.boards);
-      }
       const nextBoardId = getNextBoardFromPlay(opponentRow, opponentCol);
       const bigBoardScoredMoves = scoreMovesBigBoard(gameState, me, opp);
 
@@ -362,13 +359,8 @@ function gameLoop(gameState: GameState) {
       const tieMove = bigBoardScoredMoves.filter(
         (bestMove) => bestMove.outcome === "Tie"
       );
-
-      if (moveCount === 1 && opponentCol === 4 && opponentRow === 4) {
-        debugMessage("here1");
-        gameState.updateBoard(4, 0, 1, me, me, opp);
-        playPosition(4, 3);
-      } else if (moveCount === 1 && opponentCol === 0 && opponentRow === 0) {
-        gameState.updateBoard(0, 0, 1, me, me, opp);
+      if (moveCount === 1 && opponentRow === 4 && opponentCol === 4) {
+        gameState.updateBoard(4, 1, 0, me, me, opp);
         playPosition(4, 3);
       } else if (winMove.length > 0) {
         gameState.updateFromPlay(
@@ -417,7 +409,7 @@ function gameLoop(gameState: GameState) {
               );
             });
 
-          if (availableMoves) {
+          if (availableMoves[0]) {
             move = availableMoves[0];
           }
           gameState.updateFromPlay(move.row, move.col, me, me, opp);
@@ -825,19 +817,6 @@ function bigBoardToSmallBoard(bigBoard: BoardState[]): Board {
 }
 
 function isBigBoardWon(bigBoard: BoardState[]): boolean {
-  // const bigBoardAsSmallBoard = bigBoardToSmallBoard(bigBoard);
-  // const isWon = isBoardWon(bigBoardAsSmallBoard, Value.X);
-
-  // if (isWon) {
-  //   return true;
-  // } else if (
-  //   bigBoard.some(
-  //     (boardState) =>
-  //       boardState.state === "Clean" || boardState.state === "Playing"
-  //   )
-  // ) {
-  //   return false;
-  // }
   return (
     bigBoard.filter((boardState) => boardState.state === "Won").length >
     bigBoard.filter((boardState) => boardState.state === "Lost").length
@@ -845,19 +824,6 @@ function isBigBoardWon(bigBoard: BoardState[]): boolean {
 }
 
 function isBigBoardLost(bigBoard: BoardState[]): boolean {
-  // const bigBoardAsSmallBoard = bigBoardToSmallBoard(bigBoard);
-  // const isWon = isBoardWon(bigBoardAsSmallBoard, Value.O);
-
-  // if (isWon) {
-  //   return true;
-  // } else if (
-  //   bigBoard.some(
-  //     (boardState) =>
-  //       boardState.state === "Clean" || boardState.state === "Playing"
-  //   )
-  // ) {
-  //   return false;
-  // }
   return (
     bigBoard.filter((boardState) => boardState.state === "Won").length <
     bigBoard.filter((boardState) => boardState.state === "Lost").length
