@@ -383,7 +383,6 @@ function gameLoop(gameState: GameState) {
       // Update Board From Move
       gameState.updateFromPlay(opponentRow, opponentCol, opp, me, opp);
       const nextBoardToPlay = getNextBoardFromPlay(opponentRow, opponentCol);
-      let isBoardOpen = false;
 
       const bigBoardScoredMoves = scoreMovesBigBoard(gameState, me, opp);
 
@@ -394,9 +393,6 @@ function gameLoop(gameState: GameState) {
         (bestMove) => bestMove.outcome === "Win"
       );
 
-      const tieMove = bigBoardScoredMoves.filter(
-        (bestMove) => bestMove.outcome === "Tie"
-      );
       if (moveCount === 1 && opponentRow === 4 && opponentCol === 4) {
         gameState.updateBoard(4, 1, 0, me, me, opp);
         playPosition(4, 3);
