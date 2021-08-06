@@ -4,6 +4,7 @@ enum Value {
   E = "-",
   X = "X",
   O = "O",
+  T = "T",
 }
 
 interface ScoredMove {
@@ -106,6 +107,9 @@ class GameState {
   won: number = 0;
   lost: number = 0;
   tied: number = 0;
+
+  me: Value = Value.X;
+  opp: Value = Value.O;
 
   wonBoards: BoardState[] = [];
   lostBoards: BoardState[] = [];
@@ -368,7 +372,8 @@ function isBoardTied(board: Board): boolean {
   );
 }
 
-function moveToBlock(board: Board, opp: Value): Action | null {
+function moveToBlock(board: Board, opp: Value): Action[] | null {
+  const blockMoves: Action[] = [];
   //ROWS
   for (let c = 0; c <= 2; c++) {
     const row = c;
@@ -378,7 +383,7 @@ function moveToBlock(board: Board, opp: Value): Action | null {
       board[row][1] === opp &&
       board[row][2] === Value.E
     ) {
-      return { row, col: 2 };
+      blockMoves.push({ row, col: 2 });
     }
 
     if (
@@ -386,7 +391,7 @@ function moveToBlock(board: Board, opp: Value): Action | null {
       board[row][1] === Value.E &&
       board[row][2] === opp
     ) {
-      return { row, col: 1 };
+      blockMoves.push({ row, col: 1 });
     }
 
     if (
@@ -394,7 +399,7 @@ function moveToBlock(board: Board, opp: Value): Action | null {
       board[row][1] === opp &&
       board[row][2] === opp
     ) {
-      return { row, col: 0 };
+      blockMoves.push({ row, col: 0 });
     }
 
     const col = c;
@@ -404,7 +409,7 @@ function moveToBlock(board: Board, opp: Value): Action | null {
       board[1][col] === opp &&
       board[2][col] === Value.E
     ) {
-      return { row: 2, col };
+      blockMoves.push({ row: 2, col });
     }
 
     if (
@@ -412,7 +417,7 @@ function moveToBlock(board: Board, opp: Value): Action | null {
       board[1][col] === Value.E &&
       board[2][col] === opp
     ) {
-      return { row: 1, col };
+      blockMoves.push({ row: 1, col });
     }
 
     if (
@@ -420,7 +425,7 @@ function moveToBlock(board: Board, opp: Value): Action | null {
       board[1][col] === opp &&
       board[2][col] === opp
     ) {
-      return { row: 0, col };
+      blockMoves.push({ row: 0, col });
     }
   }
 
@@ -428,19 +433,22 @@ function moveToBlock(board: Board, opp: Value): Action | null {
 
   if (board[1][1] === opp) {
     if (board[0][0] === opp && board[2][2] === Value.E) {
-      return { row: 2, col: 2 };
+      blockMoves.push({ row: 2, col: 2 });
     }
     if (board[2][2] === opp && board[0][0] === Value.E) {
-      return { row: 0, col: 0 };
+      blockMoves.push({ row: 0, col: 0 });
     }
     if (board[0][2] === opp && board[2][0] === Value.E) {
-      return { row: 2, col: 0 };
+      blockMoves.push({ row: 2, col: 0 });
     }
     if (board[2][0] === opp && board[0][2] === Value.E) {
-      return { row: 0, col: 2 };
+      blockMoves.push({ row: 0, col: 2 });
     }
   }
 
+  if (blockMoves.length > 0) {
+    return blockMoves;
+  }
   return null;
 }
 
@@ -530,13 +538,6 @@ function movesLeftBigBoard(gameState: GameState): Action[] {
   const bigBoard = gameState.boards;
   const nextBoardId = gameState.activeBoard;
 
-  // debugMessage({
-  //   val:
-  //     bigBoard[nextBoardId].state === "Playing" ||
-  //     bigBoard[nextBoardId].state === "Clean",
-  //   fun: isBoardPlayable(bigBoard[nextBoardId].state),
-  // });
-
   if (
     bigBoard[nextBoardId].state === "Playing" ||
     bigBoard[nextBoardId].state === "Clean"
@@ -549,17 +550,31 @@ function movesLeftBigBoard(gameState: GameState): Action[] {
       )
       .reduce((acc, sm) => [...acc, ...sm], []);
   }
-  return bigBoard
-    .filter(
-      (boardState) =>
-        boardState.state === "Clean" || boardState.state === "Playing"
-    )
-    .map((boardState) =>
-      movesLeft(boardState.board).map((move) =>
-        offSetToBigBoard(move.row, move.col, boardState.id)
-      )
-    )
-    .reduce((acc, sm) => [...acc, ...sm], []);
+
+  let bigBoardMovesLeft: Action[] = [];
+
+  for (let boardIndex = 0; boardIndex < bigBoard.length; boardIndex++) {
+    const moves = movesLeft(bigBoard[boardIndex].board);
+    for (let movesIndex = 0; movesIndex < moves.length; movesIndex++) {
+      const move = moves[movesIndex];
+      bigBoardMovesLeft.push(
+        offSetToBigBoard(move.row, move.col, bigBoard[boardIndex].id)
+      );
+    }
+  }
+
+  return bigBoardMovesLeft;
+  // return bigBoard
+  //   .filter(
+  //     (boardState) =>
+  //       boardState.state === "Clean" || boardState.state === "Playing"
+  //   )
+  //   .map((boardState) =>
+  //     movesLeft(boardState.board).map((move) =>
+  //       offSetToBigBoard(move.row, move.col, boardState.id)
+  //     )
+  //   )
+  //   .reduce((acc, sm) => [...acc, ...sm], []);
 }
 
 function isBoardWon(board: Board, player: Value): boolean {
@@ -691,6 +706,10 @@ function bigBoardStateToValue(
     }
     case "Lost": {
       return Value.O;
+      break;
+    }
+    case "Tie": {
+      return Value.T;
       break;
     }
     default: {
@@ -874,6 +893,36 @@ function minMaxBigBoardV3(
   return minMaxResult;
 }
 
+function fullDepth(gameState: GameState, move: Action, current: Value): number {
+  const newGameState = new GameState(gameState);
+  newGameState.updateFromPlay(
+    move.row,
+    move.col,
+    current,
+    gameState.me,
+    gameState.opp
+  );
+  const board = bigBoardToSmallBoard(gameState.boards);
+
+  if (isBoardWon(board, gameState.me)) {
+    return 1;
+  }
+
+  if (isBoardWon(board, gameState.opp)) {
+    return -1;
+  }
+
+  if (isBoardTied(board)) {
+    return 0;
+  }
+
+  const nextMove = movesLeftBigBoard(newGameState)[0];
+  if (!nextMove) {
+    return 5;
+  }
+  return fullDepth(newGameState, nextMove, getOpponent(current));
+}
+
 function createBigBoardID(bigBoard: BoardState[]): string {
   return bigBoard.map((boardState) => boardToString(boardState.board)).join("");
 }
@@ -922,8 +971,13 @@ function gameLoop(gameState: GameState) {
     }
 
     if (opponentRow === -1 && opponentCol === -1) {
-      gameState.updateBoard(4, 1, 1, me, me, opp);
-      playPosition(4, 4);
+      // const state = new GameState(gameState);
+      // const start = new Date().getTime();
+      // const result = fullDepth(state, { row: 4, col: 4 }, Value.X);
+      // const end = new Date().getTime();
+      // debugMessage({ result, time: end - start });
+      gameState.updateBoard(0, 1, 2, me, me, opp);
+      playPosition(1, 2);
     } else {
       // Update Board From Move
       gameState.updateFromPlay(opponentRow, opponentCol, opp, me, opp);
@@ -1039,25 +1093,36 @@ function gameLoop(gameState: GameState) {
         } else {
           // debugMessage("here8");
 
-          const blockMove = moveToBlock(board, opp);
+          const blockMoves = moveToBlock(board, opp);
 
           const won = gameState.won;
           const lost = gameState.lost;
 
           // TODO: Last chnge
-          if (blockMove && won < lost) {
-            const willBlockMoveLose = loseMove.some((loseMove) => {
-              const bBlock = offSetToBigBoard(
-                blockMove.row,
-                blockMove.col,
-                boardId
-              );
+          if (blockMoves) {
+            let blockMove: Action = blockMoves[0];
+            let willBlockMoveLose: boolean = false;
 
-              return (
-                loseMove.action.row === bBlock.row &&
-                loseMove.action.col === bBlock.col
-              );
-            });
+            const bBlock = offSetToBigBoard(
+              blockMoves[0].row,
+              blockMoves[0].col,
+              boardId
+            );
+            for (
+              let loseMoveIndex = 0;
+              loseMoveIndex < loseMove.length;
+              loseMoveIndex++
+            ) {
+              const loseM = loseMove[loseMoveIndex];
+
+              if (
+                loseM.action.row === bBlock.row &&
+                loseM.action.col === bBlock.col
+              ) {
+                willBlockMoveLose = true;
+                break;
+              }
+            }
 
             if (willBlockMoveLose) {
               const bestMoves = findBestMove(board, me, opp)
@@ -1077,12 +1142,14 @@ function gameLoop(gameState: GameState) {
 
               if (bestMoves.length > 0) {
                 playMove(gameState, boardId, bestMoves[0].action, me, opp);
+              } else if (blockMoves[1]) {
+                playMove(gameState, boardId, blockMoves[1], me, opp);
               } else {
-                playMove(gameState, boardId, blockMove, me, opp);
+                playMove(gameState, boardId, blockMoves[0], me, opp);
               }
             } else {
               // Block move wont lose
-              playMove(gameState, boardId, blockMove, me, opp);
+              playMove(gameState, boardId, blockMoves[0], me, opp);
             }
           } else {
             debugMessage("here");
