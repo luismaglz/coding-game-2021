@@ -14,7 +14,7 @@ interface ScoredMove {
 
 interface ScoredBigMove {
   action: Action;
-  outcome: "Win" | "Lose" | "Tie" | "Undetermined";
+  outcome: "Win" | "Lose" | "Tie" | "Undetermined" | "WinLose";
 }
 interface BigBoardAction extends Action {
   boardId: number;
@@ -682,8 +682,16 @@ function scoreMovesBigBoard(
       outcome: "Undetermined",
     };
 
-    if (minMaxResult.o === "W") {
+    if (
+      minMaxResult.o === "W" &&
+      !minMaxResult.r.some((result) => result.o === "L")
+    ) {
       scoredBigMove.outcome = "Win";
+    } else if (
+      minMaxResult.r.some((result) => result.o === "L") &&
+      minMaxResult.o === "W"
+    ) {
+      scoredBigMove.outcome = "WinLose";
     } else if (minMaxResult.r.some((result) => result.o === "L")) {
       scoredBigMove.outcome = "Lose";
     } else if (minMaxResult.r.some((result) => result.o === "T")) {
@@ -927,6 +935,21 @@ function createBigBoardID(bigBoard: BoardState[]): string {
   return bigBoard.map((boardState) => boardToString(boardState.board)).join("");
 }
 
+function willMoveLose(loseMoves: ScoredBigMove[], move: Action): boolean {
+  for (
+    let loseMoveIndex = 0;
+    loseMoveIndex < loseMoves.length;
+    loseMoveIndex++
+  ) {
+    const loseM = loseMoves[loseMoveIndex];
+
+    if (loseM.action.row === move.row && loseM.action.col === move.col) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // score,row,col
 //
 
@@ -993,6 +1016,9 @@ function gameLoop(gameState: GameState) {
       const winMove = bigBoardScoredMoves.filter(
         (bestMove) => bestMove.outcome === "Win"
       );
+      const winLoseMove = bigBoardScoredMoves.filter(
+        (bestMove) => bestMove.outcome === "WinLose"
+      );
 
       if (moveCount === 1 && opponentRow === 4 && opponentCol === 4) {
         // debugMessage("here1");
@@ -1009,6 +1035,15 @@ function gameLoop(gameState: GameState) {
           opp
         );
         playPosition(winMove[0].action.row, winMove[0].action.col);
+      } else if (winLoseMove.length > 0) {
+        gameState.updateFromPlay(
+          winLoseMove[0].action.row,
+          winLoseMove[0].action.col,
+          me,
+          me,
+          opp
+        );
+        playPosition(winLoseMove[0].action.row, winLoseMove[0].action.col);
       } else {
         // debugMessage("here3");
 
@@ -1152,7 +1187,7 @@ function gameLoop(gameState: GameState) {
               playMove(gameState, boardId, blockMoves[0], me, opp);
             }
           } else {
-            debugMessage("here");
+            // debugMessage("here");
             let nextMove: Action;
             const bestMoves = findBestMove(board, me, opp).sort(
               (a, b) => b.score - a.score
