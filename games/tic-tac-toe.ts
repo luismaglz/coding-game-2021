@@ -115,6 +115,8 @@ class GameState {
   lostBoards: BoardState[] = [];
   tiedBoards: BoardState[] = [];
 
+  status: "Won" | "Lost" | "Tie" | "Playing" = "Playing";
+
   getBoard(id: number): BoardState {
     return this.boards[id];
   }
@@ -137,6 +139,7 @@ class GameState {
       opp
     );
     this.activeBoard = getNextBoardFromPlay(row, col);
+    this.updateStatus();
   }
 
   updateBoard(
@@ -172,6 +175,28 @@ class GameState {
 
   getId(): string {
     return createBigBoardID(this.boards);
+  }
+
+  updateStatus(): void {
+    if (
+      this.wonBoards.length +
+        this.lostBoards.length +
+        this.tiedBoards.length ===
+      this.boards.length
+    ) {
+      if (this.wonBoards.length >= this.lostBoards.length) {
+        this.status = "Won";
+      } else {
+        this.status = "Lost";
+      }
+    } else {
+      const board = bigBoardToSmallBoard(this.boards);
+      if (isBoardWon(board, this.me)) {
+        this.status = "Won";
+      } else if (isBoardWon(board, this.opp)) {
+        this.status = "Lost";
+      }
+    }
   }
 
   constructor(protected state?: GameState) {
