@@ -310,13 +310,16 @@ function gameState_randomMove(gameState: GameState): Action {
   // const tie: Action[] = [];
 
   // for (let x = 0; x < moves.length; x++) {
-  //   const newState = new GameState(this);
   //   const move = moves[x];
-  //   newState.updateFromPlay(move.row, move.col, getOpponent(this.lastValue));
-  //   if (newState.won > this.won) {
+  //   const newState = createNewGameState(gameState, {
+  //     row: move.row,
+  //     col: move.col,
+  //     value: getOpponent(gameState.lastValue),
+  //   });
+  //   if (newState.won > gameState.won) {
   //     win.push(move);
   //   }
-  //   if (newState.tied > this.tied) {
+  //   if (newState.tied > gameState.tied) {
   //     tie.push(move);
   //   }
   // }
@@ -350,37 +353,37 @@ function gameState_randomChild(gameState: GameState): GameState {
   //   }
   // }
 
-  // const values: string[] = [];
+  const values: string[] = [];
 
-  // if (this.wonChildren.length > 0) {
-  //   values.push("won");
-  // } else if (this.tiedChildren.length > 0) {
-  //   values.push("tied");
-  // } else if (this.lostChildren.length > 0) {
-  //   values.push("lost");
-  // }
+  if (gameState.wonChildren.length > 0) {
+    values.push("won");
+  } else if (gameState.tiedChildren.length > 0) {
+    values.push("tied");
+  } else if (gameState.lostChildren.length > 0) {
+    values.push("lost");
+  }
 
-  // if (values.length > 0) {
-  //   const selectedValue = values[Math.floor(Math.random() * values.length)];
+  if (values.length > 0) {
+    const selectedValue = values[Math.floor(Math.random() * values.length)];
 
-  //   if (selectedValue === "won") {
-  //     return this.wonChildren[
-  //       Math.floor(Math.random() * this.wonChildren.length)
-  //     ];
-  //   }
+    if (selectedValue === "won") {
+      return gameState.wonChildren[
+        Math.floor(Math.random() * gameState.wonChildren.length)
+      ];
+    }
 
-  //   if (selectedValue === "tied") {
-  //     return this.tiedChildren[
-  //       Math.floor(Math.random() * this.tiedChildren.length)
-  //     ];
-  //   }
+    if (selectedValue === "tied") {
+      return gameState.tiedChildren[
+        Math.floor(Math.random() * gameState.tiedChildren.length)
+      ];
+    }
 
-  //   if (selectedValue === "lost") {
-  //     return this.lostChildren[
-  //       Math.floor(Math.random() * this.lostChildren.length)
-  //     ];
-  //   }
-  // }
+    if (selectedValue === "lost") {
+      return gameState.lostChildren[
+        Math.floor(Math.random() * gameState.lostChildren.length)
+      ];
+    }
+  }
 
   return gameState.children[
     Math.floor(Math.random() * gameState.children.length)
@@ -437,21 +440,32 @@ function gameState_getChildWithMaxScore(gameState: GameState): GameState {
 function gameState_expand(gameState: GameState): void {
   const moves = movesLeftBigBoard(gameState);
   moves.forEach((move) => {
-    const newGameState = createNewGameState(gameState, {
-      ...move,
-      value: getOpponent(gameState.lastValue),
-    });
+    const childId = getIdFromPlay(
+      gameState,
+      move.row,
+      move.col,
+      getOpponent(gameState.lastValue)
+    );
 
-    // if (newGameState.won > gameState.won) {
-    //   gameState.wonChildren.push(newGameState);
-    // }
-    // if (newGameState.lost > gameState.lost) {
-    //   gameState.lostChildren.push(newGameState);
-    // }
-    // if (newGameState.tied > gameState.tied) {
-    //   gameState.tiedChildren.push(newGameState);
-    // }
-    gameState.children.push(newGameState);
+    if (NodeTracker[childId]) {
+      gameState.children.push(NodeTracker[childId]);
+    } else {
+      const newGameState = createNewGameState(gameState, {
+        ...move,
+        value: getOpponent(gameState.lastValue),
+      });
+
+      if (newGameState.won > gameState.won) {
+        gameState.wonChildren.push(newGameState);
+      }
+      if (newGameState.lost > gameState.lost) {
+        gameState.lostChildren.push(newGameState);
+      }
+      if (newGameState.tied > gameState.tied) {
+        gameState.tiedChildren.push(newGameState);
+      }
+      gameState.children.push(newGameState);
+    }
   });
 }
 
@@ -1090,6 +1104,13 @@ function minMax(board: Board, me: Value, opp: Value, current: Value): number {
   return score;
 }
 
+function createIdFromMove(id: string, move: Cell): string {
+  const moveIndex = move.col + move.row * 9;
+  const split = id.split("");
+  split[moveIndex] = move.value;
+  return split.join("");
+}
+
 interface MinMaxResult {
   d: number;
   o: "W" | "L" | "T" | "U";
@@ -1580,18 +1601,16 @@ function monteCarloStrat(
   gameState: GameState,
   moveCount: number,
   time: number
-): void {
-  const bestMove = monteCarloFindBestMove(gameState, 90 - time);
-  gameState_updateFromPlay(gameState, bestMove.row, bestMove.col, Value.X);
-
-  playPosition(bestMove.row, bestMove.col);
+): Action {
+  const bestMove = monteCarloFindBestMove(gameState, time);
+  return bestMove;
 }
 
 const optimizedHash: { [key: string]: any[] } = {};
 const NodeTracker: { [key: string]: GameState } = {};
 
-function gameLoop(gameState: GameState) {
-  let currentGameState: GameState = gameState;
+function gameLoop(id: string) {
+  let currentGameState: GameState = NodeTracker[id];
   let moveCount = 0;
   // game loop
 
@@ -1611,47 +1630,54 @@ function gameLoop(gameState: GameState) {
     }
 
     if (opponentRow === -1 && opponentCol === -1) {
-      gameState_updateFromPlay(currentGameState, 0, 0, Value.X);
-      // monteCarloFindBestMove(currentGameState, 980);
+      const firstMoveState = createNewGameState(currentGameState, {
+        row: 0,
+        col: 0,
+        value: Value.X,
+      });
+
+      currentGameState.children.push(firstMoveState);
+      monteCarloFindBestMove(currentGameState, 900);
+      currentGameState = firstMoveState;
       playPosition(0, 0);
     } else {
-      gameState_updateFromPlay(
+      let newId = getIdFromPlay(
         currentGameState,
         opponentRow,
         opponentCol,
         Value.O
       );
+      if (NodeTracker[newId]) {
+        currentGameState = NodeTracker[newId];
+      } else {
+        currentGameState = createNewGameState(currentGameState, {
+          row: opponentRow,
+          col: opponentCol,
+          value: Value.O,
+        });
+      }
 
-      // if (NodeTracker[gameState.id]) {
-      //   currentGameState = NodeTracker[gameState.id];
-      //   currentGameState.parentNodeId = null;
-      // } else {
-      //   currentGameState.children = [];
-      // }
-      currentGameState.children = [];
-      // const { children, ...state } = currentGameState;
-      // debugMessage(state);
-      // debugMessage(
-      //   children.map((c) => {
-      //     const { children, ...rest } = c;
-      //     return rest;
-      //   })
-      // );
-      monteCarloStrat(currentGameState, moveCount, 65);
-
-      // if (gameState.moveHistory.length < 20) {
-      //   monteCarloStrat(gameState, moveCount);
-      // } else {
-      //   minMaxStrat(gameState, moveCount);
-      // }
+      const move = monteCarloStrat(currentGameState, moveCount, 65);
+      newId = getIdFromPlay(currentGameState, move.row, move.col, Value.X);
+      if (NodeTracker[newId]) {
+        currentGameState = NodeTracker[newId];
+      } else {
+        currentGameState = createNewGameState(currentGameState, {
+          row: opponentRow,
+          col: opponentCol,
+          value: Value.X,
+        });
+      }
+      playPosition(move.row, move.col);
     }
   }
 }
 const initial_gameState = new GameState();
 initial_gameState.visitCount = 1;
+NodeTracker[initial_gameState.id] = initial_gameState;
 // firstPlayGameState.generateId();
 // // // let log = true;
-gameLoop(initial_gameState);
+gameLoop(initial_gameState.id);
 
 // const initial_state: GameState = {
 //   boards: [
