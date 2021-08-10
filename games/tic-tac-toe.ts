@@ -68,9 +68,8 @@ function getIdFromPlay(
   col: number,
   value: Value
 ): string {
-  const newState = new GameState(gameState);
-  newState.updateFromPlay(row, col, value);
-  return newState.getId();
+  const newState = createNewGameState(gameState, { row, col, value });
+  return newState.id;
 }
 
 let id = 0;
@@ -123,6 +122,7 @@ class GameState {
       state: "Clean",
     },
   ];
+
   activeBoard: number = 0;
   won: number = 0;
   lost: number = 0;
@@ -141,105 +141,318 @@ class GameState {
   lastValue: Value = Value.E;
   moveHistory: Cell[] = [];
 
-  getBoard(id: number): BoardState {
-    return this.boards[id];
+  visitCount: number = 0;
+  winScore: number = 0;
+  loseScore: number = 0;
+  tieScore: number = 0;
+  totalMoves: number = 0;
+  id: string =
+    "------------------------------------------------------------------------";
+  parentNodeId: string | null = null;
+
+  wonChildren: GameState[] = [];
+  tiedChildren: GameState[] = [];
+  lostChildren: GameState[] = [];
+
+  children: GameState[] = [];
+}
+
+function createNewGameState(gameState: GameState, cell: Cell): GameState {
+  const newState = new GameState();
+  newState.boards = gameState.boards.map((boardState) => {
+    return {
+      board: cloneBoard(boardState.board),
+      id: boardState.id,
+      state: boardState.state,
+    };
+  });
+
+  newState.activeBoard = gameState.activeBoard;
+  newState.won = gameState.won;
+  newState.lost = gameState.lost;
+  newState.tied = gameState.tied;
+
+  newState.me = gameState.me;
+  newState.opp = gameState.opp;
+
+  newState.wonBoards = [...gameState.wonBoards];
+  newState.lostBoards = [...gameState.lostBoards];
+  newState.tiedBoards = [...gameState.tiedBoards];
+
+  newState.status = gameState.status;
+
+  newState.lastPlay = gameState.lastPlay;
+  newState.lastValue = gameState.lastValue;
+  newState.moveHistory = [...gameState.moveHistory];
+
+  gameState_updateFromPlay(newState, cell.row, cell.col, cell.value);
+
+  newState.id = createBigBoardID(newState);
+  newState.parentNodeId = gameState.id;
+
+  if (NodeTracker[newState.id]) {
+    return NodeTracker[newState.id];
+  } else {
+    NodeTracker[newState.id] = newState;
   }
 
-  updateState(row: number, col: number, value: Value): void {
-    this.updateStatus();
-    this.lastPlay = { row, col };
-    this.lastValue = value;
-    this.moveHistory.push({ row, col, value });
-  }
+  return newState;
+}
 
-  updateFromPlay(row: number, col: number, value: Value): void {
-    const boardId = getBoardFromPlay(row, col);
-    const offSetAction = offSetToSmallBoard(row, col);
+function gameState_getBoard(gameState: GameState, id: number): BoardState {
+  return gameState.boards[id];
+}
 
-    this.updateBoard(boardId, offSetAction.row, offSetAction.col, value);
-    this.activeBoard = getNextBoardFromPlay(row, col);
-  }
+function gameState_updateState(
+  gameState: GameState,
+  row: number,
+  col: number,
+  value: Value
+): void {
+  gameState_updateStatus(gameState);
+  gameState.lastPlay = { row, col };
+  gameState.lastValue = value;
+  gameState.moveHistory.push({ row, col, value });
+  gameState.totalMoves++;
+}
 
-  updateBoard(boardId: number, row: number, col: number, value: Value): void {
-    const boardState = this.boards[boardId];
+function gameState_updateFromPlay(
+  gameState: GameState,
+  row: number,
+  col: number,
+  value: Value
+): void {
+  const boardId = getBoardFromPlay(row, col);
+  const offSetAction = offSetToSmallBoard(row, col);
 
-    boardState.board = updateBoard(boardState.board, { row, col, value });
+  gameState_updateBoard(
+    gameState,
+    boardId,
+    offSetAction.row,
+    offSetAction.col,
+    value
+  );
+  gameState.activeBoard = getNextBoardFromPlay(row, col);
+  gameState.id = createBigBoardID(gameState);
+}
 
-    if (boardState.state === "Clean") {
-      boardState.state = "Playing";
-    } else if (boardState.state === "Playing") {
-      if (isBoardWon(boardState.board, this.me)) {
-        boardState.state = "Won";
-        this.won++;
-        this.wonBoards.push(boardState);
-      } else if (isBoardWon(boardState.board, this.opp)) {
-        boardState.state = "Lost";
-        this.lost++;
-        this.lostBoards.push(boardState);
-      } else if (isBoardTied(boardState.board)) {
-        boardState.state = "Tie";
-        this.tied++;
-        this.tiedBoards.push(boardState);
-      }
+function gameState_updateBoard(
+  gameState: GameState,
+  boardId: number,
+  row: number,
+  col: number,
+  value: Value
+): void {
+  const boardState = gameState.boards[boardId];
+
+  boardState.board = updateBoard(boardState.board, { row, col, value });
+
+  if (boardState.state === "Clean") {
+    boardState.state = "Playing";
+  } else if (boardState.state === "Playing") {
+    if (isBoardWon(boardState.board, gameState.me)) {
+      boardState.state = "Won";
+      gameState.won++;
+      gameState.wonBoards.push(boardState);
+    } else if (isBoardWon(boardState.board, gameState.opp)) {
+      boardState.state = "Lost";
+      gameState.lost++;
+      gameState.lostBoards.push(boardState);
+    } else if (isBoardTied(boardState.board)) {
+      boardState.state = "Tie";
+      gameState.tied++;
+      gameState.tiedBoards.push(boardState);
     }
-
-    const big = offSetToBigBoard(row, col, boardId);
-    this.updateState(big.row, big.col, value);
   }
 
-  getId(): string {
-    return createBigBoardID(this.boards);
-  }
+  const big = offSetToBigBoard(row, col, boardId);
+  gameState_updateState(gameState, big.row, big.col, value);
+}
 
-  updateStatus(): void {
-    if (
-      this.wonBoards.length +
-        this.lostBoards.length +
-        this.tiedBoards.length ===
-      this.boards.length
-    ) {
-      if (this.wonBoards.length >= this.lostBoards.length) {
-        this.status = GameStatus.Won;
-      } else {
-        this.status = GameStatus.Lost;
-      }
+function gameState_updateStatus(gameState: GameState): void {
+  if (
+    gameState.wonBoards.length +
+      gameState.lostBoards.length +
+      gameState.tiedBoards.length ===
+    gameState.boards.length
+  ) {
+    if (gameState.wonBoards.length >= gameState.lostBoards.length) {
+      gameState.status = GameStatus.Won;
     } else {
-      const board = bigBoardToSmallBoard(this.boards);
-      if (isBoardWon(board, this.me)) {
-        this.status = GameStatus.Won;
-      } else if (isBoardWon(board, this.opp)) {
-        this.status = GameStatus.Lost;
-      }
+      gameState.status = GameStatus.Lost;
+    }
+  } else {
+    const board = bigBoardToSmallBoard(gameState.boards);
+    if (isBoardWon(board, gameState.me)) {
+      gameState.status = GameStatus.Won;
+    } else if (isBoardWon(board, gameState.opp)) {
+      gameState.status = GameStatus.Lost;
+    }
+  }
+}
+
+function gameState_getParentNode(gameState: GameState): GameState | null {
+  if (!gameState.parentNodeId) {
+    return null;
+  } else {
+    return NodeTracker[gameState.parentNodeId];
+  }
+}
+
+function gameState_randomMove(gameState: GameState): Action {
+  // const bestPlay = findBestMove(
+  //   this.boards[this.activeBoard].board,
+  //   getOpponent(this.lastValue),
+  //   this.lastValue
+  // );
+  const moves = movesLeftBigBoard(gameState);
+  // const win: Action[] = [];
+  // const tie: Action[] = [];
+
+  // for (let x = 0; x < moves.length; x++) {
+  //   const newState = new GameState(this);
+  //   const move = moves[x];
+  //   newState.updateFromPlay(move.row, move.col, getOpponent(this.lastValue));
+  //   if (newState.won > this.won) {
+  //     win.push(move);
+  //   }
+  //   if (newState.tied > this.tied) {
+  //     tie.push(move);
+  //   }
+  // }
+
+  // if (win.length > 0) {
+  //   return win[Math.floor(Math.random() * win.length)];
+  // } else if (tie.length > 0) {
+  //   return tie[Math.floor(Math.random() * tie.length)];
+  // } else {
+  return moves[Math.floor(Math.random() * moves.length)];
+  // }
+}
+
+function gameState_randomChild(gameState: GameState): GameState {
+  // this.children.sort((ca, cb) => ca.lost - ca.won - (cb.lost - cb.won));
+  // return this.children[0];
+
+  // const bestPlay = findBestMove(
+  //   this.boards[this.activeBoard].board,
+  //   getOpponent(this.lastValue),
+  //   this.lastValue
+  // );
+  // if (bestPlay[0]) {
+  //   const found = this.children.find(
+  //     (c) =>
+  //       c.lastPlay.row === bestPlay[0].action.row &&
+  //       c.lastPlay.col === bestPlay[0].action.col
+  //   );
+  //   if (found) {
+  //     return found;
+  //   }
+  // }
+
+  // const values: string[] = [];
+
+  // if (this.wonChildren.length > 0) {
+  //   values.push("won");
+  // } else if (this.tiedChildren.length > 0) {
+  //   values.push("tied");
+  // } else if (this.lostChildren.length > 0) {
+  //   values.push("lost");
+  // }
+
+  // if (values.length > 0) {
+  //   const selectedValue = values[Math.floor(Math.random() * values.length)];
+
+  //   if (selectedValue === "won") {
+  //     return this.wonChildren[
+  //       Math.floor(Math.random() * this.wonChildren.length)
+  //     ];
+  //   }
+
+  //   if (selectedValue === "tied") {
+  //     return this.tiedChildren[
+  //       Math.floor(Math.random() * this.tiedChildren.length)
+  //     ];
+  //   }
+
+  //   if (selectedValue === "lost") {
+  //     return this.lostChildren[
+  //       Math.floor(Math.random() * this.lostChildren.length)
+  //     ];
+  //   }
+  // }
+
+  return gameState.children[
+    Math.floor(Math.random() * gameState.children.length)
+  ];
+
+  // const sorted = this.children.sort((ca, cb) => cb.won - ca.won);
+  // return sorted[0];
+}
+
+function gameState_selectPromisingNode(gameState: GameState): GameState {
+  // console.log("gameState_selectPromisingNode");
+  if (gameState.children.length === 0) {
+    return gameState;
+  }
+  return findBestNodeWithUCB(gameState);
+}
+
+function gameState_getChildWithMaxScore(gameState: GameState): GameState {
+  let max = gameState.children[0];
+  let min = gameState.children[0];
+
+  let optimal = gameState.children[0];
+
+  for (let i = 0; i < gameState.children.length; i++) {
+    if (gameState.children[i].winScore >= max.winScore) {
+      max = gameState.children[i];
+    }
+
+    if (gameState.children[i].loseScore >= min.loseScore) {
+      min = gameState.children[i];
+    }
+
+    if (
+      gameState.children[i].winScore - gameState.children[i].loseScore >
+      optimal.winScore - optimal.loseScore
+    ) {
+      optimal = gameState.children[i];
     }
   }
 
-  movesLeft(): Action[] {
-    return movesLeftBigBoard(this);
+  if (!max) {
+    console.error(gameState);
+  }
+  // return optimal;
+  if (max.winScore === 0) {
+    return min;
+  } else {
+    return max;
   }
 
-  constructor(gameState?: GameState) {
-    if (gameState) {
-      this.boards = gameState.boards.map((boardState) => {
-        return {
-          board: cloneBoard(boardState.board),
-          id: boardState.id,
-          state: boardState.state,
-        };
-      });
+  return max;
+}
 
-      this.moveHistory = [...gameState.moveHistory];
-      this.wonBoards = [...gameState.wonBoards];
-      this.lostBoards = [...gameState.lostBoards];
-      this.tiedBoards = [...gameState.tiedBoards];
-      this.won = gameState.won;
-      this.lost = gameState.lost;
-      this.tied = gameState.tied;
-      this.lastPlay = gameState.lastPlay;
-      this.lastValue = gameState.lastValue;
+function gameState_expand(gameState: GameState): void {
+  const moves = movesLeftBigBoard(gameState);
+  moves.forEach((move) => {
+    const newGameState = createNewGameState(gameState, {
+      ...move,
+      value: getOpponent(gameState.lastValue),
+    });
 
-      this.activeBoard = gameState.activeBoard;
-    }
-  }
+    // if (newGameState.won > gameState.won) {
+    //   gameState.wonChildren.push(newGameState);
+    // }
+    // if (newGameState.lost > gameState.lost) {
+    //   gameState.lostChildren.push(newGameState);
+    // }
+    // if (newGameState.tied > gameState.tied) {
+    //   gameState.tiedChildren.push(newGameState);
+    // }
+    gameState.children.push(newGameState);
+  });
 }
 
 function getBoardFromPlay(row: number, col: number): number {
@@ -413,7 +626,7 @@ function playMove(
   me: Value,
   opp: Value
 ) {
-  gameState.updateBoard(boardId, move.row, move.col, me);
+  gameState_updateBoard(gameState, boardId, move.row, move.col, me);
   const bigBoardAction = offSetToBigBoard(move.row, move.col, boardId);
   playPosition(bigBoardAction.row, bigBoardAction.col);
 }
@@ -893,8 +1106,11 @@ function minMaxBigBoardV3(
   tieBefore: number,
   depth: number = 0
 ): MinMaxResult {
-  const newGameState = new GameState(gameState);
-  newGameState.updateFromPlay(move.row, move.col, current);
+  const newGameState = createNewGameState(gameState, {
+    row: move.row,
+    col: move.col,
+    value: current,
+  });
 
   const movesAvailable = movesLeftBigBoard(newGameState);
 
@@ -962,8 +1178,11 @@ function minMaxBigBoardV3(
 }
 
 function fullDepth(gameState: GameState, move: Action, current: Value): number {
-  const newGameState = new GameState(gameState);
-  newGameState.updateFromPlay(move.row, move.col, current);
+  const newGameState = createNewGameState(gameState, {
+    row: move.row,
+    col: move.col,
+    value: current,
+  });
   const board = bigBoardToSmallBoard(gameState.boards);
 
   if (isBoardWon(board, gameState.me)) {
@@ -985,8 +1204,10 @@ function fullDepth(gameState: GameState, move: Action, current: Value): number {
   return fullDepth(newGameState, nextMove, getOpponent(current));
 }
 
-function createBigBoardID(bigBoard: BoardState[]): string {
-  return bigBoard.map((boardState) => boardToString(boardState.board)).join("");
+function createBigBoardID(gameState: GameState): string {
+  return gameState.boards
+    .map((boardState) => boardToString(boardState.board))
+    .join("");
 }
 
 function willMoveLose(loseMoves: ScoredBigMove[], move: Action): boolean {
@@ -1026,17 +1247,23 @@ function minMaxStrat(gameState: GameState, moveCount: number): void {
   const amIWinning = gameState.won < gameState.lost;
 
   if (winMove.length && !amIWinning) {
-    gameState.updateFromPlay(winMove[0].action.row, winMove[0].action.col, me);
+    gameState_updateFromPlay(
+      gameState,
+      winMove[0].action.row,
+      winMove[0].action.col,
+      me
+    );
     playPosition(winMove[0].action.row, winMove[0].action.col);
   } else if (winLoseMove.length > 0) {
-    gameState.updateFromPlay(
+    gameState_updateFromPlay(
+      gameState,
       winLoseMove[0].action.row,
       winLoseMove[0].action.col,
       me
     );
     playPosition(winLoseMove[0].action.row, winLoseMove[0].action.col);
   } else {
-    let nextBoardState = gameState.getBoard(nextBoardToPlay);
+    let nextBoardState = gameState_getBoard(gameState, nextBoardToPlay);
     if (
       nextBoardState.state === "Lost" ||
       nextBoardState.state === "Tie" ||
@@ -1091,7 +1318,7 @@ function minMaxStrat(gameState: GameState, moveCount: number): void {
       if (availableMoves[0]) {
         move = availableMoves[0];
       }
-      gameState.updateFromPlay(move.row, move.col, me);
+      gameState_updateFromPlay(gameState, move.row, move.col, me);
       // const bigBoardAction = offSetToBigBoard(move.row, move.col, boardId);
       playPosition(move.row, move.col);
     } else {
@@ -1180,7 +1407,13 @@ function minMaxStrat(gameState: GameState, moveCount: number): void {
           nextMove = bestMoves[0].action;
         }
 
-        gameState.updateBoard(boardId, nextMove.row, nextMove.col, me);
+        gameState_updateBoard(
+          gameState,
+          boardId,
+          nextMove.row,
+          nextMove.col,
+          me
+        );
         const bigBoardAction = offSetToBigBoard(
           nextMove.row,
           nextMove.col,
@@ -1195,221 +1428,20 @@ function minMaxStrat(gameState: GameState, moveCount: number): void {
 let debug = false;
 const WIN_SCORE: number = 10;
 const LOSE_SCORE: number = 10;
-class GameStateNode extends GameState {
-  visitCount: number = 0;
-  winScore: number = 0;
-  loseScore: number = 0;
-  tieScore: number = 0;
-  parentNodeId: string | null = null;
-  children: GameStateNode[] = [];
-  totalMoves: number = 0;
-  id: string | null = null;
 
-  wonChildren: GameStateNode[] = [];
-  tiedChildren: GameStateNode[] = [];
-  lostChildren: GameStateNode[] = [];
-
-  constructor(gameStateNode: GameState, parent?: GameStateNode) {
-    super(gameStateNode);
-    if (parent) {
-      this.parentNodeId = parent.id;
-    }
-    this.children = [];
-  }
-  get parentNode(): GameStateNode | null {
-    if (!this.parentNodeId) {
-      return null;
-    } else {
-      return NodeTracker[this.parentNodeId];
-    }
-  }
-
-  generateId(): void {
-    this.id = createBigBoardID(this.boards);
-    if (this.id) {
-      NodeTracker[this.id] = this;
-    }
-  }
-
-  updateFromPlay(row: number, col: number, value: Value) {
-    // if (debug) debugMessage({ row, col, value });
-    this.totalMoves++;
-    super.updateFromPlay(row, col, value);
-    this.generateId();
-  }
-
-  randomMove(): Action {
-    // const bestPlay = findBestMove(
-    //   this.boards[this.activeBoard].board,
-    //   getOpponent(this.lastValue),
-    //   this.lastValue
-    // );
-    const moves = movesLeftBigBoard(this);
-    // const win: Action[] = [];
-    // const tie: Action[] = [];
-
-    // for (let x = 0; x < moves.length; x++) {
-    //   const newState = new GameState(this);
-    //   const move = moves[x];
-    //   newState.updateFromPlay(move.row, move.col, getOpponent(this.lastValue));
-    //   if (newState.won > this.won) {
-    //     win.push(move);
-    //   }
-    //   if (newState.tied > this.tied) {
-    //     tie.push(move);
-    //   }
-    // }
-
-    // if (win.length > 0) {
-    //   return win[Math.floor(Math.random() * win.length)];
-    // } else if (tie.length > 0) {
-    //   return tie[Math.floor(Math.random() * tie.length)];
-    // } else {
-    return moves[Math.floor(Math.random() * moves.length)];
-    // }
-  }
-
-  randomChild(): GameStateNode {
-    // this.children.sort((ca, cb) => ca.lost - ca.won - (cb.lost - cb.won));
-    // return this.children[0];
-
-    // const bestPlay = findBestMove(
-    //   this.boards[this.activeBoard].board,
-    //   getOpponent(this.lastValue),
-    //   this.lastValue
-    // );
-    // if (bestPlay[0]) {
-    //   const found = this.children.find(
-    //     (c) =>
-    //       c.lastPlay.row === bestPlay[0].action.row &&
-    //       c.lastPlay.col === bestPlay[0].action.col
-    //   );
-    //   if (found) {
-    //     return found;
-    //   }
-    // }
-
-    // const values: string[] = [];
-
-    // if (this.wonChildren.length > 0) {
-    //   values.push("won");
-    // } else if (this.tiedChildren.length > 0) {
-    //   values.push("tied");
-    // } else if (this.lostChildren.length > 0) {
-    //   values.push("lost");
-    // }
-
-    // if (values.length > 0) {
-    //   const selectedValue = values[Math.floor(Math.random() * values.length)];
-
-    //   if (selectedValue === "won") {
-    //     return this.wonChildren[
-    //       Math.floor(Math.random() * this.wonChildren.length)
-    //     ];
-    //   }
-
-    //   if (selectedValue === "tied") {
-    //     return this.tiedChildren[
-    //       Math.floor(Math.random() * this.tiedChildren.length)
-    //     ];
-    //   }
-
-    //   if (selectedValue === "lost") {
-    //     return this.lostChildren[
-    //       Math.floor(Math.random() * this.lostChildren.length)
-    //     ];
-    //   }
-    // }
-
-    return this.children[Math.floor(Math.random() * this.children.length)];
-
-    // const sorted = this.children.sort((ca, cb) => cb.won - ca.won);
-    // return sorted[0];
-  }
-
-  addScore(score: number) {
-    this.winScore += score;
-  }
-
-  setWinScore(score: number) {
-    this.winScore = score;
-  }
-
-  incrementVisit() {
-    this.visitCount++;
-  }
-
-  selectPromisingNode(): GameStateNode {
-    if (this.children.length === 0) {
-      return this;
-    }
-    return findBestNodeWithUCB(this);
-  }
-
-  getChildWithMaxScore(): GameStateNode {
-    let max = this.children[0];
-    let min = this.children[0];
-
-    let optimal = this.children[0];
-
-    for (let i = 0; i < this.children.length; i++) {
-      if (this.children[i].winScore >= max.winScore) {
-        max = this.children[i];
-      }
-
-      if (this.children[i].loseScore >= min.loseScore) {
-        min = this.children[i];
-      }
-
-      if (
-        this.children[i].winScore - this.children[i].loseScore >
-        optimal.winScore - optimal.loseScore
-      ) {
-        optimal = this.children[i];
-      }
-    }
-
-    // return optimal;
-    if (max.winScore === 0) {
-      return min;
-    } else {
-      return max;
-    }
-
-    return max;
-  }
-
-  expand(): void {
-    const moves = this.movesLeft();
-    moves.forEach((move) => {
-      const newGameState = new GameStateNode(this, this);
-      newGameState.updateFromPlay(
-        move.row,
-        move.col,
-        getOpponent(this.lastValue)
-      );
-      if (newGameState.won > this.won) {
-        this.wonChildren.push(newGameState);
-      }
-      if (newGameState.lost > this.lost) {
-        this.lostChildren.push(newGameState);
-      }
-      if (newGameState.tied > this.tied) {
-        this.tiedChildren.push(newGameState);
-      }
-      this.children.push(newGameState);
-    });
-  }
-}
-
-function backPropogation(nodeToExplore: GameStateNode, debug: boolean = false) {
+function backPropogation(nodeToExplore: GameState, debug: boolean = false) {
   const endNode = nodeToExplore;
-  let tempNode: GameStateNode | null = nodeToExplore;
+
+  // console.log(endNode.status);
+  // console.log(endNode.parentNodeId);
+
+  let tempNode: GameState | null = nodeToExplore;
   while (tempNode != null) {
-    tempNode.incrementVisit();
+    // console.log(tempNode.id);
+    tempNode.visitCount++;
     // TODO: MAYBE NOT PLAYING NOT LOST
     if (endNode.status === GameStatus.Won) {
-      tempNode.addScore(WIN_SCORE);
+      tempNode.winScore += WIN_SCORE;
     }
 
     if (endNode.status === GameStatus.Tie) {
@@ -1419,16 +1451,21 @@ function backPropogation(nodeToExplore: GameStateNode, debug: boolean = false) {
     if (endNode.status === GameStatus.Lost) {
       tempNode.loseScore += LOSE_SCORE;
     }
-    tempNode = tempNode.parentNode;
+
+    if (!tempNode.parentNodeId) {
+      tempNode = null;
+    } else {
+      tempNode = NodeTracker[tempNode.parentNodeId];
+    }
   }
 }
 
-function simulateRandomPlayout(node: GameStateNode): GameStateNode {
+function simulateRandomPlayout(node: GameState): GameState {
   let boardStatus = node.status;
   let board = node;
   if (boardStatus == GameStatus.Lost || GameStatus.Tie) {
-    if (board.parentNode) {
-      board.parentNode.setWinScore(Number.MIN_VALUE);
+    if (board.parentNodeId) {
+      NodeTracker[board.parentNodeId].winScore = Number.MIN_VALUE;
       board.winScore = 0;
     }
     return board;
@@ -1436,10 +1473,12 @@ function simulateRandomPlayout(node: GameStateNode): GameStateNode {
   let count = 0;
   while (boardStatus == GameStatus.Playing) {
     count++;
-    const move = board.randomMove();
+    const move = gameState_randomMove(board);
 
-    const newBoard = new GameStateNode(board, board);
-    newBoard.updateFromPlay(move.row, move.col, getOpponent(board.lastValue));
+    const newBoard = createNewGameState(board, {
+      ...move,
+      value: getOpponent(board.lastValue),
+    });
     boardStatus = newBoard.status;
     board = newBoard;
   }
@@ -1447,7 +1486,9 @@ function simulateRandomPlayout(node: GameStateNode): GameStateNode {
 }
 
 // Montecarlo
-function findBestNodeWithUCB(node: GameStateNode): GameStateNode {
+function findBestNodeWithUCB(node: GameState): GameState {
+  // console.log("findBestNodeWithUCB");
+
   let parentVisitCt = node.visitCount;
   let childUCB: number[] = [];
   node.children.forEach((child) => {
@@ -1455,6 +1496,13 @@ function findBestNodeWithUCB(node: GameStateNode): GameStateNode {
   });
   const max: number = Math.max(...childUCB);
   const idx = childUCB.indexOf(max);
+  // const { visitCount, winScore } = node.children[0];
+  // console.log({
+  //   visitCount,
+  //   winScore,
+  //   parentVisitCt,
+  // });
+  // console.log("result", ucbValue(0, 0, 1));
   return node.children[idx];
 }
 
@@ -1474,32 +1522,32 @@ const nodeVisitCount = {
   tied: 0,
 };
 
-function monteCarloFindBestMove(
-  gameStateNode: GameStateNode,
-  time: number
-): Action {
+function monteCarloFindBestMove(gameState: GameState, time: number): Action {
   const startTime = Date.now();
   let count = 0;
   while (Date.now() - startTime < time) {
     count++;
-    const promissingNode = gameStateNode.selectPromisingNode();
+    const promissingNode = gameState_selectPromisingNode(gameState);
 
-    // if (!promissingNode) {
-    //   console.log(gameStateNode);
-    // }
+    if (!promissingNode) {
+      console.error("!promissingNode");
+      console.error(gameState);
+    }
 
     if (promissingNode.status === GameStatus.Playing) {
-      promissingNode.expand();
+      gameState_expand(promissingNode);
     }
 
     let nodeToExplore = promissingNode;
     if (promissingNode.children.length > 0) {
-      nodeToExplore = promissingNode.randomChild();
+      nodeToExplore = gameState_randomChild(promissingNode);
     }
 
-    if (count === 10) {
-      debug = true;
-    }
+    // if (count === 10) {
+    //   debug = true;
+    // } else {
+    //   debug = false;
+    // }
     const resultGameStateNode = simulateRandomPlayout(nodeToExplore);
     if (resultGameStateNode.status === GameStatus.Won) {
       nodeVisitCount.won += 1;
@@ -1513,11 +1561,11 @@ function monteCarloFindBestMove(
     //   console.log(resultGameStateNode.moveHistory);
     // }
 
-    backPropogation(resultGameStateNode);
+    backPropogation(resultGameStateNode, debug);
   }
   // console.log(nodeVisitCount);
   // console.log(
-  //   gameStateNode.children.map((c) => {
+  //   gameState.children.map((c) => {
   //     return {
   //       win: c.winScore,
   //       lose: c.loseScore,
@@ -1525,7 +1573,7 @@ function monteCarloFindBestMove(
   //     };
   //   })
   // );
-  return gameStateNode.getChildWithMaxScore().lastPlay;
+  return gameState_getChildWithMaxScore(gameState).lastPlay;
 }
 
 function monteCarloStrat(
@@ -1533,62 +1581,63 @@ function monteCarloStrat(
   moveCount: number,
   time: number
 ): void {
-  let gameStateNode: GameStateNode;
-  const bigBoardId = createBigBoardID(gameState.boards);
-  if (NodeTracker[bigBoardId]) {
-    gameStateNode = NodeTracker[bigBoardId];
-    gameStateNode.parentNodeId = null;
-    if (gameStateNode.children.length === 0) {
-      gameStateNode.expand();
-    }
-  } else {
-    gameStateNode = new GameStateNode(gameState);
-    gameStateNode.expand();
-  }
-  const bestMove = monteCarloFindBestMove(gameStateNode, 95 - time);
-  gameState.updateFromPlay(bestMove.row, bestMove.col, Value.X);
+  const bestMove = monteCarloFindBestMove(gameState, 90 - time);
+  gameState_updateFromPlay(gameState, bestMove.row, bestMove.col, Value.X);
 
   playPosition(bestMove.row, bestMove.col);
 }
 
 const optimizedHash: { [key: string]: any[] } = {};
-const NodeTracker: { [key: string]: GameStateNode } = {};
+const NodeTracker: { [key: string]: GameState } = {};
 
-function gameLoop(gameState: GameStateNode) {
+function gameLoop(gameState: GameState) {
+  let currentGameState: GameState = gameState;
   let moveCount = 0;
   // game loop
+
+  const me = Value.X;
+  const opp = Value.O;
   while (true) {
-    const startTime = Date.now();
     moveCount++;
     var inputs = readline().split(" ");
     const opponentRow = parseInt(inputs[0]);
     const opponentCol = parseInt(inputs[1]);
     const validActionCount = parseInt(readline());
 
-    const me = Value.X;
-    const opp = Value.O;
-
     for (let i = 0; i < validActionCount; i++) {
-      var inputs = readline().split(" ");
-      const row = parseInt(inputs[0]);
-      const col = parseInt(inputs[1]);
+      const i = readline();
+      // const row = parseInt(inputs[0]);
+      // const col = parseInt(inputs[1]);
     }
 
     if (opponentRow === -1 && opponentCol === -1) {
-      gameState.updateFromPlay(0, 0, Value.X);
-      // const firstPlayGameState = new GameStateNode(gameState);
-      // firstPlayGameState.expand();
-      monteCarloFindBestMove(gameState, 980);
+      gameState_updateFromPlay(currentGameState, 0, 0, Value.X);
+      // monteCarloFindBestMove(currentGameState, 980);
       playPosition(0, 0);
     } else {
-      gameState.updateFromPlay(opponentRow, opponentCol, Value.O);
+      gameState_updateFromPlay(
+        currentGameState,
+        opponentRow,
+        opponentCol,
+        Value.O
+      );
 
-      // if (moveCount === 6) {
-      //   debugMessage(gameState);
+      // if (NodeTracker[gameState.id]) {
+      //   currentGameState = NodeTracker[gameState.id];
+      //   currentGameState.parentNodeId = null;
+      // } else {
+      //   currentGameState.children = [];
       // }
-      const end = Date.now();
-      // debugMessage(end - startTime);
-      monteCarloStrat(gameState, moveCount, end - startTime);
+      currentGameState.children = [];
+      // const { children, ...state } = currentGameState;
+      // debugMessage(state);
+      // debugMessage(
+      //   children.map((c) => {
+      //     const { children, ...rest } = c;
+      //     return rest;
+      //   })
+      // );
+      monteCarloStrat(currentGameState, moveCount, 65);
 
       // if (gameState.moveHistory.length < 20) {
       //   monteCarloStrat(gameState, moveCount);
@@ -1598,40 +1647,40 @@ function gameLoop(gameState: GameStateNode) {
     }
   }
 }
-// const initial_gameState = new GameState();
-const initial_gameState = new GameStateNode(new GameState());
+const initial_gameState = new GameState();
+initial_gameState.visitCount = 1;
 // firstPlayGameState.generateId();
 // // // let log = true;
 gameLoop(initial_gameState);
 
-// const initial_state: any = {
+// const initial_state: GameState = {
 //   boards: [
 //     {
 //       id: 0,
 //       board: [
-//         [Value.O, Value.O, Value.X],
-//         [Value.E, Value.E, Value.O],
-//         [Value.E, Value.O, Value.E],
+//         [Value.X, Value.O, Value.E],
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
 //       ],
 //       state: "Playing",
 //     },
 //     {
 //       id: 1,
 //       board: [
-//         [Value.X, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
 //         [Value.E, Value.E, Value.E],
 //         [Value.E, Value.E, Value.E],
 //       ],
-//       state: "Playing",
+//       state: "Clean",
 //     },
 //     {
 //       id: 2,
 //       board: [
 //         [Value.E, Value.E, Value.E],
-//         [Value.E, Value.O, Value.E],
-//         [Value.E, Value.O, Value.E],
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
 //       ],
-//       state: "Playing",
+//       state: "Clean",
 //     },
 //     {
 //       id: 3,
@@ -1654,11 +1703,11 @@ gameLoop(initial_gameState);
 //     {
 //       id: 5,
 //       board: [
-//         [Value.X, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
 //         [Value.E, Value.E, Value.E],
 //         [Value.E, Value.E, Value.E],
 //       ],
-//       state: "Playing",
+//       state: "Clean",
 //     },
 //     {
 //       id: 6,
@@ -1672,11 +1721,11 @@ gameLoop(initial_gameState);
 //     {
 //       id: 7,
 //       board: [
-//         [Value.X, Value.E, Value.X],
+//         [Value.E, Value.E, Value.E],
 //         [Value.E, Value.E, Value.E],
 //         [Value.E, Value.E, Value.E],
 //       ],
-//       state: "Playing",
+//       state: "Clean",
 //     },
 //     {
 //       id: 8,
@@ -1688,7 +1737,7 @@ gameLoop(initial_gameState);
 //       state: "Clean",
 //     },
 //   ],
-//   activeBoard: 4,
+//   activeBoard: 1,
 //   won: 0,
 //   lost: 0,
 //   tied: 0,
@@ -1698,25 +1747,33 @@ gameLoop(initial_gameState);
 //   lostBoards: [],
 //   tiedBoards: [],
 //   status: -1,
-//   lastPlay: { row: 1, col: 7 },
+//   lastPlay: { row: 0, col: 1 },
 //   lastValue: Value.O,
 //   moveHistory: [
-//     { row: 1, col: 2, value: Value.O },
-//     { row: 3, col: 6, value: Value.X },
+//     { row: 0, col: 0, value: Value.X },
 //     { row: 0, col: 1, value: Value.O },
-//     { row: 0, col: 3, value: Value.X },
-//     { row: 2, col: 1, value: Value.O },
-//     { row: 6, col: 5, value: Value.X },
-//     { row: 2, col: 7, value: Value.O },
-//     { row: 6, col: 3, value: Value.X },
-//     { row: 0, col: 0, value: Value.O },
-//     { row: 0, col: 2, value: Value.X },
-//     { row: 1, col: 7, value: Value.O },
 //   ],
+//   visitCount: 1,
+//   winScore: 0,
+//   loseScore: 0,
+//   tieScore: 0,
+//   totalMoves: 2,
+//   id: "XO-------------------------------------------------------------------------------",
+//   parentNodeId: null,
+//   wonChildren: [],
+//   tiedChildren: [],
+//   lostChildren: [],
+//   children: [],
 // };
 
-// const gameState = new GameState(initial_state);
-// const firstPlayGameState = new GameStateNode(gameState);
-// firstPlayGameState.generateId();
-// const move = monteCarloFindBestMove(firstPlayGameState, 900);
+// gameState_expand(initial_state);
+// // console.log(
+// //   initial_state.children.map((c) => {
+// //     return {
+// //       id: c.id,
+// //       parentId: c.parentNodeId,
+// //     };
+// //   })
+// // );
+// const move = monteCarloFindBestMove(initial_state, 100);
 // console.log(move);
