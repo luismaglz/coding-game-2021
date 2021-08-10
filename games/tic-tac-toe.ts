@@ -62,6 +62,17 @@ enum GameStatus {
   Lost = 2,
 }
 
+function getIdFromPlay(
+  gameState: GameState,
+  row: number,
+  col: number,
+  value: Value
+): string {
+  const newState = new GameState(gameState);
+  newState.updateFromPlay(row, col, value);
+  return newState.getId();
+}
+
 let id = 0;
 
 class GameState {
@@ -127,7 +138,7 @@ class GameState {
   status: GameStatus = GameStatus.Playing;
 
   lastPlay: Action = { row: -1, col: -1 };
-  lastValue: Value = Value.X;
+  lastValue: Value = Value.E;
   moveHistory: Cell[] = [];
 
   getBoard(id: number): BoardState {
@@ -223,6 +234,8 @@ class GameState {
       this.won = gameState.won;
       this.lost = gameState.lost;
       this.tied = gameState.tied;
+      this.lastPlay = gameState.lastPlay;
+      this.lastValue = gameState.lastValue;
 
       this.activeBoard = gameState.activeBoard;
     }
@@ -698,7 +711,8 @@ function scoreMoves(
 function scoreMovesBigBoard(
   gameState: GameState,
   me: Value,
-  opp: Value
+  opp: Value,
+  override: number = 0
 ): ScoredBigMove[] {
   const availableMoves = movesLeftBigBoard(gameState);
 
@@ -720,7 +734,7 @@ function scoreMovesBigBoard(
       wins,
       loss,
       tie,
-      availableMoves.length > 6 ? 1 : 0
+      override
     );
 
     const scoredBigMove: ScoredBigMove = {
@@ -1178,8 +1192,6 @@ function minMaxStrat(gameState: GameState, moveCount: number): void {
   }
 }
 
-// //seed=310144971
-// //TfuPChSI1
 let debug = false;
 const WIN_SCORE: number = 10;
 const LOSE_SCORE: number = 10;
@@ -1187,34 +1199,35 @@ class GameStateNode extends GameState {
   visitCount: number = 0;
   winScore: number = 0;
   loseScore: number = 0;
+  tieScore: number = 0;
   parentNodeId: string | null = null;
   children: GameStateNode[] = [];
   totalMoves: number = 0;
-  id: string;
+  id: string | null = null;
 
   wonChildren: GameStateNode[] = [];
   tiedChildren: GameStateNode[] = [];
   lostChildren: GameStateNode[] = [];
 
-  constructor(gameStateNode: GameState, parent?: GameStateNode, cell?: Cell) {
+  constructor(gameStateNode: GameState, parent?: GameStateNode) {
     super(gameStateNode);
-
     if (parent) {
       this.parentNodeId = parent.id;
     }
     this.children = [];
-
-    if (cell) {
-      this.updateFromPlay(cell.row, cell.col, cell.value);
-    }
-    this.id = createBigBoardID(this.boards);
-    gameStates[this.id] = this;
   }
   get parentNode(): GameStateNode | null {
     if (!this.parentNodeId) {
       return null;
     } else {
-      return gameStates[this.parentNodeId];
+      return NodeTracker[this.parentNodeId];
+    }
+  }
+
+  generateId(): void {
+    this.id = createBigBoardID(this.boards);
+    if (this.id) {
+      NodeTracker[this.id] = this;
     }
   }
 
@@ -1222,16 +1235,7 @@ class GameStateNode extends GameState {
     // if (debug) debugMessage({ row, col, value });
     this.totalMoves++;
     super.updateFromPlay(row, col, value);
-    this.id = createBigBoardID(this.boards);
-  }
-
-  randomPlay(): void {
-    const randomMove = this.randomMove();
-    this.updateFromPlay(
-      randomMove.row,
-      randomMove.col,
-      getOpponent(this.lastValue)
-    );
+    this.generateId();
   }
 
   randomMove(): Action {
@@ -1240,11 +1244,27 @@ class GameStateNode extends GameState {
     //   getOpponent(this.lastValue),
     //   this.lastValue
     // );
-
-    // if (bestPlay[0]) {
-    //   return bestPlay[0].action;
-    // } else {
     const moves = movesLeftBigBoard(this);
+    // const win: Action[] = [];
+    // const tie: Action[] = [];
+
+    // for (let x = 0; x < moves.length; x++) {
+    //   const newState = new GameState(this);
+    //   const move = moves[x];
+    //   newState.updateFromPlay(move.row, move.col, getOpponent(this.lastValue));
+    //   if (newState.won > this.won) {
+    //     win.push(move);
+    //   }
+    //   if (newState.tied > this.tied) {
+    //     tie.push(move);
+    //   }
+    // }
+
+    // if (win.length > 0) {
+    //   return win[Math.floor(Math.random() * win.length)];
+    // } else if (tie.length > 0) {
+    //   return tie[Math.floor(Math.random() * tie.length)];
+    // } else {
     return moves[Math.floor(Math.random() * moves.length)];
     // }
   }
@@ -1269,37 +1289,37 @@ class GameStateNode extends GameState {
     //   }
     // }
 
-    const values: string[] = [];
+    // const values: string[] = [];
 
-    if (this.wonChildren.length > 0) {
-      values.push("won");
-    } else if (this.tiedChildren.length > 0) {
-      values.push("tied");
-    } else if (this.lostChildren.length > 0) {
-      values.push("lost");
-    }
+    // if (this.wonChildren.length > 0) {
+    //   values.push("won");
+    // } else if (this.tiedChildren.length > 0) {
+    //   values.push("tied");
+    // } else if (this.lostChildren.length > 0) {
+    //   values.push("lost");
+    // }
 
-    if (values.length > 0) {
-      const selectedValue = values[Math.floor(Math.random() * values.length)];
+    // if (values.length > 0) {
+    //   const selectedValue = values[Math.floor(Math.random() * values.length)];
 
-      if (selectedValue === "won") {
-        return this.wonChildren[
-          Math.floor(Math.random() * this.wonChildren.length)
-        ];
-      }
+    //   if (selectedValue === "won") {
+    //     return this.wonChildren[
+    //       Math.floor(Math.random() * this.wonChildren.length)
+    //     ];
+    //   }
 
-      if (selectedValue === "tied") {
-        return this.tiedChildren[
-          Math.floor(Math.random() * this.tiedChildren.length)
-        ];
-      }
+    //   if (selectedValue === "tied") {
+    //     return this.tiedChildren[
+    //       Math.floor(Math.random() * this.tiedChildren.length)
+    //     ];
+    //   }
 
-      if (selectedValue === "lost") {
-        return this.lostChildren[
-          Math.floor(Math.random() * this.lostChildren.length)
-        ];
-      }
-    }
+    //   if (selectedValue === "lost") {
+    //     return this.lostChildren[
+    //       Math.floor(Math.random() * this.lostChildren.length)
+    //     ];
+    //   }
+    // }
 
     return this.children[Math.floor(Math.random() * this.children.length)];
 
@@ -1362,11 +1382,12 @@ class GameStateNode extends GameState {
   expand(): void {
     const moves = this.movesLeft();
     moves.forEach((move) => {
-      const newGameState = new GameStateNode(this, this, {
-        row: move.row,
-        col: move.col,
-        value: getOpponent(this.lastValue),
-      });
+      const newGameState = new GameStateNode(this, this);
+      newGameState.updateFromPlay(
+        move.row,
+        move.col,
+        getOpponent(this.lastValue)
+      );
       if (newGameState.won > this.won) {
         this.wonChildren.push(newGameState);
       }
@@ -1387,11 +1408,12 @@ function backPropogation(nodeToExplore: GameStateNode, debug: boolean = false) {
   while (tempNode != null) {
     tempNode.incrementVisit();
     // TODO: MAYBE NOT PLAYING NOT LOST
-    if (
-      endNode.status === GameStatus.Won ||
-      endNode.status === GameStatus.Tie
-    ) {
+    if (endNode.status === GameStatus.Won) {
       tempNode.addScore(WIN_SCORE);
+    }
+
+    if (endNode.status === GameStatus.Tie) {
+      tempNode.tieScore += 10;
     }
 
     if (endNode.status === GameStatus.Lost) {
@@ -1404,20 +1426,20 @@ function backPropogation(nodeToExplore: GameStateNode, debug: boolean = false) {
 function simulateRandomPlayout(node: GameStateNode): GameStateNode {
   let boardStatus = node.status;
   let board = node;
-  if (boardStatus == GameStatus.Lost) {
-    if (node.parentNode) {
-      node.parentNode.setWinScore(Number.MIN_VALUE);
-      node.winScore = 0;
+  if (boardStatus == GameStatus.Lost || GameStatus.Tie) {
+    if (board.parentNode) {
+      board.parentNode.setWinScore(Number.MIN_VALUE);
+      board.winScore = 0;
     }
-    return node;
+    return board;
   }
+  let count = 0;
   while (boardStatus == GameStatus.Playing) {
+    count++;
     const move = board.randomMove();
-    const newBoard = new GameStateNode(board, board, {
-      row: move.row,
-      col: move.col,
-      value: getOpponent(node.lastValue),
-    });
+
+    const newBoard = new GameStateNode(board, board);
+    newBoard.updateFromPlay(move.row, move.col, getOpponent(board.lastValue));
     boardStatus = newBoard.status;
     board = newBoard;
   }
@@ -1461,57 +1483,60 @@ function monteCarloFindBestMove(
   while (Date.now() - startTime < time) {
     count++;
     const promissingNode = gameStateNode.selectPromisingNode();
-    // console.log(promissingNode.id);
+
+    // if (!promissingNode) {
+    //   console.log(gameStateNode);
+    // }
 
     if (promissingNode.status === GameStatus.Playing) {
       promissingNode.expand();
     }
-    // if (count % 10 === 0) {
-    //   debugMessage({ count });
-    // }
-    let nodeToExplore = promissingNode;
 
-    // if (count === 1) {
-    //   console.log(promissingNode.id);
-    // }
-    // if (!Number.isNaN(nodeVisitCount[nodeToExplore.id])) {
-    //   nodeVisitCount[nodeToExplore.id] += 1;
-    // } else {
-    //   nodeVisitCount[nodeToExplore.id] = 0;
-    // }
+    let nodeToExplore = promissingNode;
     if (promissingNode.children.length > 0) {
       nodeToExplore = promissingNode.randomChild();
     }
+
+    if (count === 10) {
+      debug = true;
+    }
     const resultGameStateNode = simulateRandomPlayout(nodeToExplore);
-    // if (resultGameStateNode.status === GameStatus.Won) {
-    //   nodeVisitCount.won++;
-    // } else if (resultGameStateNode.status === GameStatus.Lost) {
-    //   nodeVisitCount.lost++;
-    // } else if (resultGameStateNode.status === GameStatus.Tie) {
-    //   nodeVisitCount.tied++;
+    if (resultGameStateNode.status === GameStatus.Won) {
+      nodeVisitCount.won += 1;
+    }
+    if (resultGameStateNode.status === GameStatus.Lost) {
+      nodeVisitCount.lost += 1;
+    }
+
+    // if (count === 10) {
+    //   console.log(resultGameStateNode.parentNodeId);
+    //   console.log(resultGameStateNode.moveHistory);
     // }
+
     backPropogation(resultGameStateNode);
   }
   // console.log(nodeVisitCount);
-  console.log(
-    gameStateNode.children.map((c) => {
-      return {
-        count,
-        winScore: c.winScore,
-        loseScore: c.loseScore,
-        move: c.lastPlay,
-      };
-    })
-  );
-  // console.log(nodeVisitCount);
+  // console.log(
+  //   gameStateNode.children.map((c) => {
+  //     return {
+  //       win: c.winScore,
+  //       lose: c.loseScore,
+  //       move: c.lastPlay,
+  //     };
+  //   })
+  // );
   return gameStateNode.getChildWithMaxScore().lastPlay;
 }
 
-function monteCarloStrat(gameState: GameState, moveCount: number): void {
+function monteCarloStrat(
+  gameState: GameState,
+  moveCount: number,
+  time: number
+): void {
   let gameStateNode: GameStateNode;
   const bigBoardId = createBigBoardID(gameState.boards);
-  if (gameStates[bigBoardId]) {
-    gameStateNode = gameStates[bigBoardId];
+  if (NodeTracker[bigBoardId]) {
+    gameStateNode = NodeTracker[bigBoardId];
     gameStateNode.parentNodeId = null;
     if (gameStateNode.children.length === 0) {
       gameStateNode.expand();
@@ -1520,19 +1545,20 @@ function monteCarloStrat(gameState: GameState, moveCount: number): void {
     gameStateNode = new GameStateNode(gameState);
     gameStateNode.expand();
   }
-  const bestMove = monteCarloFindBestMove(gameStateNode, 80);
+  const bestMove = monteCarloFindBestMove(gameStateNode, 95 - time);
   gameState.updateFromPlay(bestMove.row, bestMove.col, Value.X);
 
   playPosition(bestMove.row, bestMove.col);
 }
 
 const optimizedHash: { [key: string]: any[] } = {};
-const gameStates: { [key: string]: GameStateNode } = {};
+const NodeTracker: { [key: string]: GameStateNode } = {};
 
-function gameLoop(gameState: GameState) {
+function gameLoop(gameState: GameStateNode) {
   let moveCount = 0;
   // game loop
   while (true) {
+    const startTime = Date.now();
     moveCount++;
     var inputs = readline().split(" ");
     const opponentRow = parseInt(inputs[0]);
@@ -1550,17 +1576,19 @@ function gameLoop(gameState: GameState) {
 
     if (opponentRow === -1 && opponentCol === -1) {
       gameState.updateFromPlay(0, 0, Value.X);
-      const firstPlayGameState = new GameStateNode(gameState);
-      firstPlayGameState.expand();
-      monteCarloFindBestMove(firstPlayGameState, 980);
+      // const firstPlayGameState = new GameStateNode(gameState);
+      // firstPlayGameState.expand();
+      monteCarloFindBestMove(gameState, 980);
       playPosition(0, 0);
     } else {
       gameState.updateFromPlay(opponentRow, opponentCol, Value.O);
 
-      // if (opponentRow === 7 && opponentCol === 4) {
+      // if (moveCount === 6) {
       //   debugMessage(gameState);
       // }
-      monteCarloStrat(gameState, moveCount);
+      const end = Date.now();
+      // debugMessage(end - startTime);
+      monteCarloStrat(gameState, moveCount, end - startTime);
 
       // if (gameState.moveHistory.length < 20) {
       //   monteCarloStrat(gameState, moveCount);
@@ -1571,220 +1599,124 @@ function gameLoop(gameState: GameState) {
   }
 }
 // const initial_gameState = new GameState();
-// // let log = true;
-// gameLoop(initial_gameState);
+const initial_gameState = new GameStateNode(new GameState());
+// firstPlayGameState.generateId();
+// // // let log = true;
+gameLoop(initial_gameState);
 
-const initial_state: any = {
-  boards: [
-    {
-      id: 0,
-      board: [
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.O, Value.O],
-        [Value.O, Value.E, Value.X],
-      ],
-      state: "Playing",
-    },
-    {
-      id: 1,
-      board: [
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.X, Value.X],
-      ],
-      state: "Playing",
-    },
-    {
-      id: 2,
-      board: [
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.E, Value.X],
-      ],
-      state: "Playing",
-    },
-    {
-      id: 3,
-      board: [
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.E, Value.X],
-      ],
-      state: "Playing",
-    },
-    {
-      id: 4,
-      board: [
-        [Value.O, Value.E, Value.E],
-        [Value.O, Value.E, Value.E],
-        [Value.O, Value.E, Value.E],
-      ],
-      state: "Lost",
-    },
-    {
-      id: 5,
-      board: [
-        [Value.E, Value.O, Value.E],
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.X, Value.X],
-      ],
-      state: "Playing",
-    },
-    {
-      id: 6,
-      board: [
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.E, Value.E],
-        [Value.X, Value.X, Value.X],
-      ],
-      state: "Won",
-    },
-    {
-      id: 7,
-      board: [
-        [Value.E, Value.O, Value.E],
-        [Value.E, Value.O, Value.X],
-        [Value.O, Value.O, Value.X],
-      ],
-      state: "Lost",
-    },
-    {
-      id: 8,
-      board: [
-        [Value.E, Value.E, Value.O],
-        [Value.E, Value.E, Value.O],
-        [Value.E, Value.X, Value.O],
-      ],
-      state: "Lost",
-    },
-  ],
-  activeBoard: 4,
-  won: 1,
-  lost: 3,
-  tied: 0,
-  me: Value.X,
-  opp: Value.O,
-  wonBoards: [
-    {
-      id: 6,
-      board: [
-        [Value.E, Value.E, Value.E],
-        [Value.E, Value.E, Value.E],
-        [Value.X, Value.X, Value.X],
-      ],
-      state: "Won",
-    },
-  ],
-  lostBoards: [
-    {
-      id: 8,
-      board: [
-        [Value.E, Value.E, Value.O],
-        [Value.E, Value.E, Value.O],
-        [Value.E, Value.X, Value.O],
-      ],
-      state: "Lost",
-    },
-    {
-      id: 4,
-      board: [
-        [Value.O, Value.E, Value.E],
-        [Value.O, Value.E, Value.E],
-        [Value.O, Value.E, Value.E],
-      ],
-      state: "Lost",
-    },
-    {
-      id: 7,
-      board: [
-        [Value.E, Value.O, Value.E],
-        [Value.E, Value.O, Value.X],
-        [Value.O, Value.O, Value.X],
-      ],
-      state: "Lost",
-    },
-  ],
-  tiedBoards: [],
-  status: -1,
-  lastPlay: { row: 7, col: 4 },
-  lastValue: Value.O,
-  moveHistory: [
-    { row: 1, col: 2, value: Value.O },
-    { row: 5, col: 8, value: Value.X },
-    { row: 8, col: 8, value: Value.O },
-    { row: 8, col: 7, value: Value.X },
-    { row: 8, col: 4, value: Value.O },
-    { row: 8, col: 5, value: Value.X },
-    { row: 7, col: 8, value: Value.O },
-    { row: 5, col: 7, value: Value.X },
-    { row: 8, col: 3, value: Value.O },
-    { row: 8, col: 2, value: Value.X },
-    { row: 6, col: 8, value: Value.O },
-    { row: 2, col: 8, value: Value.X },
-    { row: 4, col: 3, value: Value.O },
-    { row: 5, col: 2, value: Value.X },
-    { row: 3, col: 3, value: Value.O },
-    { row: 2, col: 2, value: Value.X },
-    { row: 5, col: 3, value: Value.O },
-    { row: 8, col: 1, value: Value.X },
-    { row: 6, col: 4, value: Value.O },
-    { row: 2, col: 5, value: Value.X },
-    { row: 2, col: 0, value: Value.O },
-    { row: 8, col: 0, value: Value.X },
-    { row: 1, col: 1, value: Value.O },
-    { row: 7, col: 5, value: Value.X },
-    { row: 3, col: 7, value: Value.O },
-    { row: 2, col: 4, value: Value.X },
-    { row: 7, col: 4, value: Value.O },
-  ],
-};
+// const initial_state: any = {
+//   boards: [
+//     {
+//       id: 0,
+//       board: [
+//         [Value.O, Value.O, Value.X],
+//         [Value.E, Value.E, Value.O],
+//         [Value.E, Value.O, Value.E],
+//       ],
+//       state: "Playing",
+//     },
+//     {
+//       id: 1,
+//       board: [
+//         [Value.X, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//       ],
+//       state: "Playing",
+//     },
+//     {
+//       id: 2,
+//       board: [
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.O, Value.E],
+//         [Value.E, Value.O, Value.E],
+//       ],
+//       state: "Playing",
+//     },
+//     {
+//       id: 3,
+//       board: [
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//       ],
+//       state: "Clean",
+//     },
+//     {
+//       id: 4,
+//       board: [
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//       ],
+//       state: "Clean",
+//     },
+//     {
+//       id: 5,
+//       board: [
+//         [Value.X, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//       ],
+//       state: "Playing",
+//     },
+//     {
+//       id: 6,
+//       board: [
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//       ],
+//       state: "Clean",
+//     },
+//     {
+//       id: 7,
+//       board: [
+//         [Value.X, Value.E, Value.X],
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//       ],
+//       state: "Playing",
+//     },
+//     {
+//       id: 8,
+//       board: [
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//         [Value.E, Value.E, Value.E],
+//       ],
+//       state: "Clean",
+//     },
+//   ],
+//   activeBoard: 4,
+//   won: 0,
+//   lost: 0,
+//   tied: 0,
+//   me: Value.X,
+//   opp: Value.O,
+//   wonBoards: [],
+//   lostBoards: [],
+//   tiedBoards: [],
+//   status: -1,
+//   lastPlay: { row: 1, col: 7 },
+//   lastValue: Value.O,
+//   moveHistory: [
+//     { row: 1, col: 2, value: Value.O },
+//     { row: 3, col: 6, value: Value.X },
+//     { row: 0, col: 1, value: Value.O },
+//     { row: 0, col: 3, value: Value.X },
+//     { row: 2, col: 1, value: Value.O },
+//     { row: 6, col: 5, value: Value.X },
+//     { row: 2, col: 7, value: Value.O },
+//     { row: 6, col: 3, value: Value.X },
+//     { row: 0, col: 0, value: Value.O },
+//     { row: 0, col: 2, value: Value.X },
+//     { row: 1, col: 7, value: Value.O },
+//   ],
+// };
 
-// // // // gameState.updateFromPlay(0, 0, Value.X);
-const gameState = new GameState(initial_state);
-const firstPlayGameState = new GameStateNode(gameState);
-const move = monteCarloFindBestMove(firstPlayGameState, 100);
-console.log(move);
-
-// // // firstPlayGameState.expand();
-// // // const { parentNodeId: parentNode, ...child } = firstPlayGameState.children[0];
-
-// // // console.log(firstPlayGameState);
-// // console.time("full");
-// // console.log("start");
+// const gameState = new GameState(initial_state);
+// const firstPlayGameState = new GameStateNode(gameState);
+// firstPlayGameState.generateId();
+// const move = monteCarloFindBestMove(firstPlayGameState, 900);
 // console.log(move);
-// console.timeEnd("full");
-
-// let result;
-// for (let x = 0; x <= 10; x++) {
-//   result = simulateRandomPlayout(firstPlayGameState);
-//   backPropogation(result);
-// }
-
-// const {
-//   boards,
-//   won,
-//   lost,
-//   tied,
-//   tiedBoards,
-//   wonBoards,
-//   lostBoards,
-//   winScore,
-// } = firstPlayGameState;
-
-// console.log({
-//   winScore,
-//   loseScore
-// })
-
-// const overallState = bigBoardToSmallBoard(firstPlayGameState.boards);
-// console.log(firstPlayGameState);
-// console.log({ move });
-// writeFileSync(
-//   join(__dirname, "/result.json"),
-//   JSON.stringify(gameStates[1], null, 2)
-// );
-// writeFileSync(
-//   join(__dirname, "/start.json"),
-//   JSON.stringify(gameStates[0], null, 2)
-// );
-// monteCarloFindBestMove(firstPlayGameState, 900);
