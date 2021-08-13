@@ -408,3 +408,4 @@ function gameLoop() {
     }
   }
 }
+//added comments
